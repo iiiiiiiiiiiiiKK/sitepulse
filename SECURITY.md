@@ -82,7 +82,7 @@ This is covered by the E2E suite.
 | --- | --- |
 | Monitors per account | 10 (free) / 50 (pro) |
 | Minimum interval | 60 s |
-| Probes per cron tick | 20 (configurable, hard cap 50) |
+| Probes per cron tick | 12 by default (configurable, hard cap 50) — sized to the 50-subrequest free-plan budget |
 | Manual checks | 60 / 10 min per account, 1 / 20 s per monitor |
 | Sign-ups | 20 / hour per IP |
 | Sign-ins | 40 / 10 min per IP, 10 / 10 min per account |

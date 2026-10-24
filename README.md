@@ -146,7 +146,7 @@ network or a database.
 
 ```
 Cron (* * * * *)
-  └─ SELECT monitors WHERE enabled = 1 AND next_check_at <= now LIMIT 20
+  └─ SELECT monitors WHERE enabled = 1 AND next_check_at <= now LIMIT 12
        └─ for each monitor:
             UPDATE monitors SET next_check_at = now + interval
               WHERE id = ? AND next_check_at = ?     ← atomic claim, dedupes overlapping runs
@@ -384,7 +384,7 @@ the `pro` plan so you can try 50 monitors and 90-day retention immediately.
 | `EMAIL_API_KEY` | for email alerts | Resend-compatible bearer token |
 | `EMAIL_FROM` | for email alerts | `SitePulse <alerts@yourdomain>` |
 | `EMAIL_API_URL` | no | Defaults to `https://api.resend.com/emails` |
-| `PROBES_PER_RUN` | no | Max monitors probed per cron tick (default 20, cap 50) |
+| `PROBES_PER_RUN` | no | Max monitors probed per cron tick (default 12, cap 50) |
 
 See [`.env.example`](.env.example). Nothing in this table is committed with a
 real value.
@@ -484,12 +484,13 @@ Honest list — these are real, not hypothetical:
 4. **No alert retry queue.** A webhook gets one retry and is then recorded as
    `failed`; there is no exponential backoff schedule beyond that.
 5. **No team accounts.** One user per account; no sharing or roles.
-6. **D1 write throughput.** Each probe is one write. With a 60 s cadence and
+6. **Free-plan subrequest budget.** A probe costs ~3 subrequests (two DNS-over-HTTPS lookups + one fetch) and the Workers free plan allows 50 per invocation, so PROBES_PER_RUN defaults to 12 per cron tick. With more than ~12 due monitors, cycles are spread over several minutes; raise the value only on a paid plan.
+7. **D1 write throughput.** Each probe is one write. With a 60 s cadence and
    dozens of monitors this stays well inside D1's limits, but a very large
    deployment would need batching.
-7. **`pro` plan is a flag, not a billing integration.** There is no payment
+8. **`pro` plan is a flag, not a billing integration.** There is no payment
    flow; the first account on a fresh install is promoted automatically.
-8. **Charts are SVG, not canvas.** Fine up to ~120 buckets; a 5-year view would
+9. **Charts are SVG, not canvas.** Fine up to ~120 buckets; a 5-year view would
    need aggregation at the SQL layer.
 
 ## Roadmap

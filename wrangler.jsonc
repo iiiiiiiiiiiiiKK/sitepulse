@@ -30,7 +30,11 @@
   "vars": {
     "APP_NAME": "SitePulse",
     "ENVIRONMENT": "production",
-    "PROBES_PER_RUN": "20",
+    // Subrequest budget per cron tick. A probe costs ~3 subrequests (2 DNS-over-
+    // HTTPS lookups + 1 fetch), and the Workers free plan allows 50 subrequests
+    // per invocation. 12 keeps the worst case (~12×3 = 36, plus alert webhooks)
+    // comfortably inside that cap. Raise it only on a paid plan.
+    "PROBES_PER_RUN": "12",
     "REQUIRE_EMAIL_VERIFICATION": "false"
   }
 }
