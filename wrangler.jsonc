@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sitepulse",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Route every request through the Worker first so that security headers,
+    // the SPA fallback and the /status pages are always applied consistently.
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    // Runs once a minute. Each monitor is claimed atomically against its own
+    // `next_check_at`, so overlapping runs can never double-probe a monitor.
+    "crons": ["* * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sitepulse-db",
+      "database_id": "642e1bdc-4465-4618-9965-78a4810419c3"
+    }
+  ],
+  "vars": {
+    "APP_NAME": "SitePulse",
+    "ENVIRONMENT": "production",
+    "PROBES_PER_RUN": "20",
+    "REQUIRE_EMAIL_VERIFICATION": "false"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.local
+*.log
+coverage/
+test-results/
+e2e/artifacts/
+docs/screenshots/*.tmp.png
+.DS_Store
+Thumbs.db

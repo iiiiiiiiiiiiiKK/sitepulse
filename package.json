@@ -1,0 +1,45 @@
+{
+  "name": "sitepulse",
+  "version": "1.0.0",
+  "private": false,
+  "description": "SitePulse — a self-hostable website uptime monitor built on Cloudflare Workers, Cron Triggers and D1.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:worker": "wrangler dev --port 8788",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
+    "build:fast": "vite build",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node e2e/run-e2e.mjs",
+    "db:local": "wrangler d1 execute sitepulse-db --local --file=worker/schema.sql",
+    "db:remote": "wrangler d1 execute sitepulse-db --remote --file=worker/schema.sql",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261024.1",
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.7.0",
+    "playwright-core": "1.64.1",
+    "typescript": "5.9.3",
+    "vite": "6.4.5",
+    "vitest": "3.2.7",
+    "wrangler": "4.152.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "workerd@1.20261019.1": true
+  }
+}
