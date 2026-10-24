@@ -22,6 +22,7 @@ export type ErrorKind =
   | 'connection'
   | 'redirect'
   | 'blocked'
+  | 'resolver'
   | 'protocol'
   | 'network';
 

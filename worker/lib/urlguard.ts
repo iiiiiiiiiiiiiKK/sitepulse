@@ -21,7 +21,15 @@
 export type GuardFailure = {
   ok: false;
   reason: string;
-  code: 'scheme' | 'credentials' | 'port' | 'hostname' | 'ip' | 'dns' | 'parse';
+  code:
+    | 'scheme'
+    | 'credentials'
+    | 'port'
+    | 'hostname'
+    | 'ip'
+    | 'dns'
+    | 'resolver'
+    | 'parse';
 };
 
 export type GuardSuccess = {
@@ -245,29 +253,61 @@ export function checkHostname(hostname: string): GuardResult | null {
 
 export type DnsResolver = (hostname: string) => Promise<string[]>;
 
+const DOH_ENDPOINTS = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
+
+async function dohQuery(
+  endpoint: string,
+  hostname: string,
+  type: 'A' | 'AAAA'
+): Promise<string[]> {
+  const url = `${endpoint}?name=${encodeURIComponent(hostname)}&type=${type}`;
+  let lastError: unknown = null;
+  // Two attempts: a transient 429/5xx from the public resolver must not be
+  // mistaken for the monitored site's own DNS being broken.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        headers: { accept: 'application/dns-json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) throw new Error(`DoH ${type} lookup failed with HTTP ${res.status}`);
+      const body = (await res.json()) as {
+        Status?: number;
+        Answer?: Array<{ type: number; data: string }>;
+      };
+      // NXDOMAIN (3) means "the name does not exist" — a legitimate, empty answer.
+      if (body.Status === 3) return [];
+      if (body.Status !== 0 || !body.Answer) return [];
+      return body.Answer.filter((a) => a.type === 1 || a.type === 28).map((a) => a.data);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`DoH ${type} lookup failed.`);
+}
+
 /**
- * Resolves A + AAAA records through Cloudflare DNS-over-HTTPS.
- * Any failure throws, which the caller turns into a hard block (fail closed).
+ * Resolves A + AAAA records through DNS-over-HTTPS.
+ *
+ * Uses two independent resolvers, because a single DoH provider having a bad
+ * minute must not manufacture a fake outage for the monitored site. The first
+ * provider that answers wins; if both fail we throw and the caller fails closed.
  */
 export const dohResolver: DnsResolver = async (hostname) => {
-  const query = async (type: 'A' | 'AAAA') => {
-    const res = await fetch(
-      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`,
-      {
-        headers: { accept: 'application/dns-json' },
-        signal: AbortSignal.timeout(4000),
-      }
-    );
-    if (!res.ok) throw new Error(`DoH ${type} lookup failed with HTTP ${res.status}`);
-    const body = (await res.json()) as {
-      Status?: number;
-      Answer?: Array<{ type: number; data: string }>;
-    };
-    if (body.Status !== 0 || !body.Answer) return [] as string[];
-    return body.Answer.filter((a) => a.type === 1 || a.type === 28).map((a) => a.data);
-  };
-  const [a, aaaa] = await Promise.all([query('A'), query('AAAA')]);
-  return [...a, ...aaaa];
+  let lastError: unknown = null;
+  for (const endpoint of DOH_ENDPOINTS) {
+    try {
+      const [a, aaaa] = await Promise.all([
+        dohQuery(endpoint, hostname, 'A'),
+        dohQuery(endpoint, hostname, 'AAAA'),
+      ]);
+      return [...a, ...aaaa];
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('All DNS-over-HTTPS resolvers failed.');
 };
 
 export interface GuardOptions {
@@ -331,10 +371,13 @@ export async function assertProbeableUrl(
   try {
     addresses = await resolver(hostname);
   } catch (error) {
+    // `resolver` means *our* DNS-over-HTTPS lookup failed — that is an
+    // infrastructure problem, not proof that the monitored site is broken, so
+    // it is reported separately and never opens an incident as a site outage.
     return {
       ok: false,
-      code: 'dns',
-      reason: `DNS lookup for ${hostname} failed (${
+      code: 'resolver',
+      reason: `Address lookup for ${hostname} failed (${
         error instanceof Error ? error.message : 'unknown error'
       }). Probe blocked to keep the target safe.`,
     };

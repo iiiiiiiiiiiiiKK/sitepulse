@@ -198,6 +198,23 @@ describe('probe', () => {
     expect(result.errorKind).toBe('connection');
   });
 
+  it('reports a resolver outage distinctly from a site DNS failure', async () => {
+    const fetchImpl = vi.fn(async () => response(200)) as unknown as typeof fetch;
+    const result = await probe(
+      { url: 'https://site.example.org/', method: 'GET', timeoutMs: 5000, expectedStatus: '200-299' },
+      {
+        fetchImpl,
+        resolver: async () => {
+          throw new Error('DoH provider unreachable');
+        },
+      }
+    );
+    expect(result.ok).toBe(false);
+    // Our own resolver breaking must never be labelled as the site's DNS being
+    // broken - the scheduler skips incident creation for resolver errors.
+    expect(result.errorKind).toBe('resolver');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
   it('refuses to probe a localhost target before any request is made', async () => {
     const fetchImpl = vi.fn(async () => response(200)) as unknown as typeof fetch;
     const result = await probe(

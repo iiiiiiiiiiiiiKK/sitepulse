@@ -115,6 +115,7 @@ export const ERROR_LABELS: Record<ErrorKind, string> = {
   connection: 'Connection error',
   redirect: 'Redirect problem',
   blocked: 'Blocked by SSRF guard',
+  resolver: 'Probe resolver unavailable',
   protocol: 'Protocol error',
   network: 'Network error',
 };
@@ -156,8 +157,10 @@ export async function probe(
   const firstGuard = await assertProbeableUrl(target.url, { resolver: options.resolver });
   if (!firstGuard.ok) {
     // A DNS resolution failure is reported as `dns` (that is what the user sees
-    // for a dead hostname), while everything else is a deliberate SSRF refusal.
-    const kind: ErrorKind = firstGuard.code === 'dns' ? 'dns' : 'blocked';
+    // for a dead hostname); a resolver outage is reported as `resolver`; every
+    // other refusal is a deliberate SSRF block.
+    const kind: ErrorKind =
+      firstGuard.code === 'dns' ? 'dns' : firstGuard.code === 'resolver' ? 'resolver' : 'blocked';
     return {
       ok: false,
       statusCode: null,

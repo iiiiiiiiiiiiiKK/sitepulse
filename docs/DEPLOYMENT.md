@@ -22,7 +22,7 @@ export CLOUDFLARE_ACCOUNT_ID=...
 ```bash
 npm install
 npm run build      # tsc --noEmit for src/ + vite build -> dist/
-npm test           # 137 tests must pass
+npm test           # 138 tests must pass
 ```
 
 ## 2. Create the D1 database

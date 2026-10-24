@@ -94,6 +94,21 @@ export async function runDueMonitors(
       if (!result.ok) summary.failed += 1;
 
       const checkedAt = Date.now();
+      // A `resolver` failure means OUR DNS-over-HTTPS lookup failed, not that
+      // the monitored site is down. It is surfaced on the monitor row (so the
+      // user can see why the last probe did not produce a sample) but it is not
+      // written as a failed check and cannot open an incident: otherwise our own
+      // infrastructure blip would fan out into a fake outage on every monitor.
+      if (!result.ok && result.errorKind === 'resolver') {
+        await env.DB.prepare(
+          `UPDATE monitors SET last_check_at = ?, last_error = ?, last_error_kind = ?, updated_at = ?
+           WHERE id = ?`
+        )
+          .bind(checkedAt, result.errorMessage, result.errorKind, checkedAt, monitor.id)
+          .run();
+        continue;
+      }
+
       await env.DB.prepare(
         `INSERT INTO checks (monitor_id, checked_at, ok, status_code, response_ms, error_kind, error_message, redirects, final_url, attempt)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`

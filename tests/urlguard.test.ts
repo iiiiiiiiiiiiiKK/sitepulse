@@ -204,14 +204,16 @@ describe('assertProbeableUrl', () => {
     if (!result.ok) expect(result.code).toBe('ip');
   });
 
-  it('fails closed when DNS resolution errors', async () => {
+  it('fails closed when the resolver itself errors', async () => {
     const result = await assertProbeableUrl('https://flaky-host.com/', {
       resolver: async () => {
         throw new Error('boom');
       },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('dns');
+    // Distinct from 'dns': our resolver outage must not be reported as the
+    // monitored site having broken DNS.
+    if (!result.ok) expect(result.code).toBe('resolver');
   });
 
   it('fails closed when DNS returns nothing', async () => {

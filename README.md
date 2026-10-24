@@ -8,7 +8,7 @@ Probes your sites every minute from Cloudflare's edge, groups failures into
 incidents with real durations, and publishes a status page you can share.
 
 [![Live](https://img.shields.io/badge/live-sitepulse.changyuansex.workers.dev-4c8dff?style=flat-square)](https://sitepulse.changyuansex.workers.dev)
-[![Tests](https://img.shields.io/badge/tests-137%20passing-3fb950?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-138%20passing-3fb950?style=flat-square)](#testing)
 [![E2E](https://img.shields.io/badge/e2e-70%2F70%20production-3fb950?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-7c5cff?style=flat-square)](LICENSE)
 [![Runtime](https://img.shields.io/badge/runtime-Cloudflare%20Workers-f38020?style=flat-square)](https://workers.cloudflare.com/)
@@ -392,7 +392,7 @@ real value.
 ## Testing
 
 ```bash
-npm test          # unit + integration (Vitest, 137 tests)
+npm test          # unit + integration (Vitest, 138 tests)
 npm run typecheck # tsc over src/ and worker/
 npm run build     # production build
 ```
@@ -402,7 +402,7 @@ Unit suites cover the parts where a bug would be invisible or dangerous:
 | Suite | Tests | What it locks down |
 | --- | --- | --- |
 | `tests/urlguard.test.ts` | 49 | every private/link-local/metadata range, encoded IPv4, IPv6 forms, port allow-list, DNS rebinding, fail-closed behaviour |
-| `tests/probe.test.ts` | 19 | 2xx/404/5xx classification, redirect re-validation, redirect limits, timeout/DNS/TLS/connection mapping, manual redirect mode |
+| `tests/probe.test.ts` | 20 | 2xx/404/5xx classification, redirect re-validation, redirect limits, timeout/DNS/TLS/connection mapping, resolver-outage labelling, manual redirect mode |
 | `tests/monitor-state.test.ts` | 22 | failure thresholds, recovery thresholds, flapping, paused isolation, availability maths, downtime clamping |
 | `tests/stats.test.ts` | 11 | bucket gaps, p95, downtime clipping, daily rollups |
 | `tests/crypto.test.ts` | 24 | PBKDF2 round-trip, pepper, AES-GCM envelope, HMAC, constant-time compare |
@@ -429,7 +429,7 @@ Latest run against production:
 
 | Suite | Result |
 | --- | --- |
-| Unit / integration | **137 / 137 passing** |
+| Unit / integration | **138 / 138 passing** |
 | Production API + cron E2E | **70 / 70 passing** |
 | Recovery & incident lifecycle | **12 / 12 passing** |
 | Browser UI (desktop + iPhone 13 + 320 px) | **17 / 17 passing** |
