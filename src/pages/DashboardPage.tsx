@@ -11,11 +11,13 @@ import {
   useToast,
 } from '../components/ui';
 import { formatInterval, formatMs, formatPercent, formatRelative, hostOf } from '../lib/format';
+import { useI18n } from '../lib/i18n';
 import { MonitorForm, type MonitorFormValues } from '../components/MonitorForm';
 
 const AUTO_REFRESH_MS = 30000;
 
 export function DashboardPage() {
+  const { t } = useI18n();
   const [monitors, setMonitors] = useState<Monitor[] | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(null);
   const [quota, setQuota] = useState<{ used: number; max: number; plan: string } | null>(null);
@@ -28,23 +30,29 @@ export function DashboardPage() {
   const [, setTick] = useState(0);
   const toast = useToast();
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setError(null);
-    try {
-      const [monitorResult, summaryResult] = await Promise.all([api.listMonitors(), api.summary()]);
-      setMonitors(monitorResult.monitors);
-      setQuota(monitorResult.quota);
-      setSummary(summaryResult);
-    } catch (caught) {
-      if (!silent) {
-        setError(
-          caught instanceof ApiClientError || caught instanceof NetworkError
-            ? caught.message
-            : 'Could not load your monitors.'
-        );
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setError(null);
+      try {
+        const [monitorResult, summaryResult] = await Promise.all([
+          api.listMonitors(),
+          api.summary(),
+        ]);
+        setMonitors(monitorResult.monitors);
+        setQuota(monitorResult.quota);
+        setSummary(summaryResult);
+      } catch (caught) {
+        if (!silent) {
+          setError(
+            caught instanceof ApiClientError || caught instanceof NetworkError
+              ? caught.message
+              : t('common.couldNotLoad')
+          );
+        }
       }
-    }
-  }, []);
+    },
+    [t]
+  );
 
   useEffect(() => {
     void load();
@@ -72,10 +80,10 @@ export function DashboardPage() {
       });
       setMonitors((prev) => (prev ? [...prev, result.monitor] : [result.monitor]));
       setCreating(false);
-      toast.push('Monitor created. The first probe runs within a minute.', 'ok');
+      toast.push(t('dash.created'), 'ok');
       void load(true);
     },
-    [load, toast]
+    [load, toast, t]
   );
 
   const handleUpdate = useCallback(
@@ -97,10 +105,10 @@ export function DashboardPage() {
           : prev
       );
       setEditing(null);
-      toast.push('Monitor updated.', 'ok');
+      toast.push(t('dash.updated'), 'ok');
       void load(true);
     },
-    [editing, load, toast]
+    [editing, load, toast, t]
   );
 
   const doAction = useCallback(
@@ -112,52 +120,53 @@ export function DashboardPage() {
           setMonitors((prev) =>
             prev ? prev.map((item) => (item.id === monitor.id ? result.monitor : item)) : prev
           );
-          toast.push(`${monitor.name} paused. No probes will run until you resume.`, 'ok');
+          toast.push(t('dash.pausedToast', { name: monitor.name }), 'ok');
         } else if (action === 'resume') {
           const result = await api.resumeMonitor(monitor.id);
           setMonitors((prev) =>
             prev ? prev.map((item) => (item.id === monitor.id ? result.monitor : item)) : prev
           );
-          toast.push(`${monitor.name} resumed. Probing again shortly.`, 'ok');
+          toast.push(t('dash.resumedToast', { name: monitor.name }), 'ok');
         } else {
-          const result = await api.checkNow(monitor.id);
-          toast.push(result.message, 'ok');
+          await api.checkNow(monitor.id);
+          toast.push(t('dash.checkQueued'), 'ok');
         }
         void load(true);
       } catch (caught) {
         toast.push(
           caught instanceof ApiClientError || caught instanceof NetworkError
             ? caught.message
-            : 'That action failed.',
+            : t('dash.actionFailed'),
           'err'
         );
       } finally {
         setBusyId(null);
       }
     },
-    [load, toast]
+    [load, toast, t]
   );
 
   const handleDelete = useCallback(async () => {
     if (!deleting) return;
     setConfirmDeleteBusy(true);
+    const name = deleting.name;
     try {
       await api.deleteMonitor(deleting.id);
       setMonitors((prev) => (prev ? prev.filter((item) => item.id !== deleting.id) : prev));
-      toast.push(`${deleting.name} deleted, including its history.`, 'ok');
+      toast.push(t('dash.deletedToast', { name }), 'ok');
       setDeleting(null);
       void load(true);
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Delete failed.',
+          : t('dash.deleteFailed'),
         'err'
       );
     } finally {
       setConfirmDeleteBusy(false);
     }
-  }, [deleting, load, toast]);
+  }, [deleting, load, toast, t]);
 
   const totals = useMemo(() => {
     if (!monitors) return null;
@@ -169,20 +178,28 @@ export function DashboardPage() {
     return { up, down, paused, total: monitors.length };
   }, [monitors]);
 
+  const planLabel = (plan: string) =>
+    plan === 'pro' ? t('nav.planPro') : t('nav.planFree');
+
   return (
     <div className="stack" style={{ gap: 18 }}>
       <div className="spread">
         <div>
-          <h1 className="page-title">Monitors</h1>
+          <h1 className="page-title">{t('dash.title')}</h1>
           <p className="page-sub">
             {totals
-              ? `${totals.total} monitor${totals.total === 1 ? '' : 's'} · ${totals.up} operational · ${totals.down} down · ${totals.paused} paused`
-              : 'Loading your monitors…'}
+              ? t('dash.summary', {
+                  total: totals.total,
+                  up: totals.up,
+                  down: totals.down,
+                  paused: totals.paused,
+                })
+              : t('dash.loading')}
           </p>
         </div>
         <div className="row">
           <button className="btn btn-sm" onClick={() => void load()} disabled={!monitors}>
-            Refresh
+            {t('common.refresh')}
           </button>
           <button
             className="btn btn-primary btn-sm"
@@ -190,11 +207,11 @@ export function DashboardPage() {
             disabled={Boolean(quota && quota.used >= quota.max)}
             title={
               quota && quota.used >= quota.max
-                ? `Your ${quota.plan} plan allows ${quota.max} monitors`
-                : 'Create a new monitor'
+                ? `${planLabel(quota.plan)} · ${quota.used}/${quota.max}`
+                : t('dash.newTitle')
             }
           >
-            + New monitor
+            {t('dash.new')}
           </button>
         </div>
       </div>
@@ -202,25 +219,28 @@ export function DashboardPage() {
       {summary ? (
         <div className="stat-grid">
           <div className="stat stat-accent-up">
-            <div className="stat-label">Operational</div>
+            <div className="stat-label">{t('dash.operational')}</div>
             <div className="stat-value">{summary.monitors.up}</div>
-            <div className="stat-sub">of {summary.monitors.total} monitors</div>
+            <div className="stat-sub">{t('dash.ofMonitors', { n: summary.monitors.total })}</div>
           </div>
           <div className={`stat ${summary.monitors.down > 0 ? 'stat-accent-down' : ''}`}>
-            <div className="stat-label">Down now</div>
+            <div className="stat-label">{t('dash.downNow')}</div>
             <div className="stat-value">{summary.monitors.down}</div>
-            <div className="stat-sub">{summary.openIncidents} open incident(s)</div>
+            <div className="stat-sub">{t('dash.openIncidents', { n: summary.openIncidents })}</div>
           </div>
           <div className="stat">
-            <div className="stat-label">Unknown</div>
+            <div className="stat-label">{t('dash.unknown')}</div>
             <div className="stat-value">{summary.monitors.unknown}</div>
-            <div className="stat-sub">awaiting first probe</div>
+            <div className="stat-sub">{t('dash.awaitingProbe')}</div>
           </div>
           <div className="stat">
-            <div className="stat-label">Quota</div>
+            <div className="stat-label">{t('dash.quota')}</div>
             <div className="stat-value">{quota ? `${quota.used}/${quota.max}` : '—'}</div>
             <div className="stat-sub">
-              {summary.plan} plan · {summary.limits.retentionDays}d history
+              {t('dash.planHistory', {
+                plan: planLabel(summary.plan),
+                days: summary.limits.retentionDays,
+              })}
             </div>
           </div>
         </div>
@@ -233,11 +253,11 @@ export function DashboardPage() {
       {monitors && monitors.length === 0 ? (
         <div className="panel">
           <EmptyState
-            title="No monitors yet"
-            description="Add the first URL you want to keep an eye on. SitePulse starts probing within a minute and keeps going while you are offline."
+            title={t('dash.emptyTitle')}
+            description={t('dash.emptyBody')}
             action={
               <button className="btn btn-primary" onClick={() => setCreating(true)}>
-                Create your first monitor
+                {t('dash.emptyCta')}
               </button>
             }
           />
@@ -263,12 +283,12 @@ export function DashboardPage() {
 
       {creating ? (
         <Modal
-          title="New monitor"
-          subtitle="SitePulse will probe this URL on the interval you choose."
+          title={t('dash.newMonitorTitle')}
+          subtitle={t('dash.newMonitorSub')}
           onClose={() => setCreating(false)}
         >
           <MonitorForm
-            submitLabel="Create monitor"
+            submitLabel={t('form.create')}
             onSubmit={handleCreate}
             onCancel={() => setCreating(false)}
           />
@@ -276,10 +296,10 @@ export function DashboardPage() {
       ) : null}
 
       {editing ? (
-        <Modal title={`Edit ${editing.name}`} onClose={() => setEditing(null)}>
+        <Modal title={t('detail.editTitle', { name: editing.name })} onClose={() => setEditing(null)}>
           <MonitorForm
             initial={editing}
-            submitLabel="Save changes"
+            submitLabel={t('form.save')}
             onSubmit={handleUpdate}
             onCancel={() => setEditing(null)}
           />
@@ -288,9 +308,9 @@ export function DashboardPage() {
 
       {deleting ? (
         <ConfirmDialog
-          title={`Delete ${deleting.name}?`}
-          message="This permanently deletes the monitor, all of its probe history and incident records. This cannot be undone."
-          confirmLabel="Delete monitor"
+          title={t('dash.deleteTitle', { name: deleting.name })}
+          message={t('dash.deleteBody')}
+          confirmLabel={t('dash.deleteConfirm')}
           danger
           busy={confirmDeleteBusy}
           onConfirm={() => void handleDelete()}
@@ -318,6 +338,7 @@ function MonitorCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   const availability = monitor.stats24h?.availability ?? null;
   return (
     <article className={`monitor-card is-${monitor.status}`}>
@@ -336,9 +357,9 @@ function MonitorCard({
               href={monitor.publicUrl}
               target="_blank"
               rel="noopener noreferrer"
-              title="Open public status page"
+              title={t('dash.openStatusPage')}
             >
-              status ↗
+              {t('dash.statusTag')}
             </a>
           ) : null}
         </div>
@@ -346,19 +367,19 @@ function MonitorCard({
 
       <div className="monitor-metrics">
         <div className="mm">
-          <div className="mm-k">24h uptime</div>
+          <div className="mm-k">{t('dash.uptime24h')}</div>
           <div className="mm-v">{formatPercent(availability)}</div>
         </div>
         <div className="mm">
-          <div className="mm-k">Response</div>
+          <div className="mm-k">{t('dash.response')}</div>
           <div className="mm-v">{formatMs(monitor.lastResponseMs)}</div>
         </div>
         <div className="mm">
-          <div className="mm-k">Last check</div>
+          <div className="mm-k">{t('dash.lastCheck')}</div>
           <div className="mm-v">{formatRelative(monitor.lastCheckAt)}</div>
         </div>
         <div className="mm">
-          <div className="mm-k">Interval</div>
+          <div className="mm-k">{t('dash.interval')}</div>
           <div className="mm-v">{formatInterval(monitor.intervalSeconds)}</div>
         </div>
       </div>
@@ -367,50 +388,52 @@ function MonitorCard({
         <div className="form-error" style={{ fontSize: 12.5 }}>
           <span aria-hidden="true">⚠</span>
           <span>
-            {monitor.status === 'recovering' ? 'Recovering — last failure: ' : 'Last failure: '}
+            {monitor.status === 'recovering' ? t('dash.recoveringPrefix') : t('dash.lastFailure')}
             {monitor.lastError}
             {monitor.consecutiveFailures > 0
-              ? ` (${monitor.consecutiveFailures}/${monitor.failureThreshold} before alerting)`
+              ? t('dash.beforeAlerting', {
+                  n: monitor.consecutiveFailures,
+                  max: monitor.failureThreshold,
+                })
               : ''}
           </span>
         </div>
       ) : null}
 
       <div className="monitor-foot">
-        <span>
-          Last success: {monitor.lastSuccessAt ? formatRelative(monitor.lastSuccessAt) : 'never'}
-        </span>
+        <span>{t('dash.lastSuccess', { value: formatRelative(monitor.lastSuccessAt) })}</span>
         <span aria-hidden="true">·</span>
-        <span>{monitor.lastStatusCode ? `HTTP ${monitor.lastStatusCode}` : 'no status yet'}</span>
+        <span>{monitor.lastStatusCode ? `HTTP ${monitor.lastStatusCode}` : t('dash.noStatusYet')}</span>
         <span style={{ flex: 1 }} />
         <div className="row" style={{ gap: 6 }}>
           <a className="btn btn-sm" href={`/app/monitors/${monitor.id}`}>
-            Details
+            {t('dash.details')}
           </a>
           <button className="btn btn-sm" onClick={onCheckNow} disabled={busy || !monitor.enabled}>
-            Check now
+            {t('dash.checkNow')}
           </button>
           {monitor.status === 'paused' ? (
             <button className="btn btn-sm" onClick={onResume} disabled={busy}>
-              Resume
+              {t('dash.resume')}
             </button>
           ) : (
             <button className="btn btn-sm" onClick={onPause} disabled={busy}>
-              Pause
+              {t('dash.pause')}
             </button>
           )}
           <button className="btn btn-sm btn-ghost" onClick={onEdit} disabled={busy}>
-            Edit
+            {t('common.edit')}
           </button>
           <button className="btn btn-sm btn-danger" onClick={onDelete} disabled={busy}>
-            Delete
+            {t('common.delete')}
           </button>
         </div>
       </div>
 
       {monitor.currentIncidentId ? (
         <p className="small" style={{ margin: 0, color: 'var(--down)' }}>
-          Ongoing incident — <a href={`/app/monitors/${monitor.id}`}>view timeline</a>
+          {t('dash.ongoingIncident')}
+          <a href={`/app/monitors/${monitor.id}`}>{t('dash.viewTimeline')}</a>
         </p>
       ) : null}
     </article>

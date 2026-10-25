@@ -8,7 +8,7 @@ Probes your sites every minute from Cloudflare's edge, groups failures into
 incidents with real durations, and publishes a status page you can share.
 
 [![Live](https://img.shields.io/badge/live-sitepulse.changyuansex.workers.dev-4c8dff?style=flat-square)](https://sitepulse.changyuansex.workers.dev)
-[![Tests](https://img.shields.io/badge/tests-138%20passing-3fb950?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-152%20passing-3fb950?style=flat-square)](#testing)
 [![E2E](https://img.shields.io/badge/e2e-70%2F70%20production-3fb950?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-7c5cff?style=flat-square)](LICENSE)
 [![Runtime](https://img.shields.io/badge/runtime-Cloudflare%20Workers-f38020?style=flat-square)](https://workers.cloudflare.com/)
@@ -61,11 +61,54 @@ questions:
 | **Notifications** | Webhook (HMAC-SHA256 signed, AES-GCM secrets at rest) and email. Every attempt is recorded with its real result — including `skipped` when no provider is configured |
 | **Public status** | Server-rendered HTML *and* JSON feed, works without JS, hostname-only disclosure, maintenance announcements |
 | **Operations** | Pause / resume / edit / delete, manual check with de-duplication, CSV & JSON export |
-| **Quotas** | Per-plan monitor limits, minimum interval, retention window, rate limits on every mutating endpoint |
+| **Quotas** | Per-plan limits, minimum interval, retention window, rate limits on every mutating endpoint |
+| **Bilingual UI** | Full 简体中文 / English switch, persisted per browser; the public status page picks its language from `?lang=` or `Accept-Language` and switches with a plain link — no JavaScript needed |
 
 ## Screenshots
 
 <table>
+<tr>
+<td width="50%">
+
+**Landing — English**
+![Landing EN](docs/screenshots/09-landing-en.png)
+
+</td>
+<td width="50%">
+
+**Landing — 简体中文**
+![Landing ZH](docs/screenshots/10-landing-zh.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Dashboard — 简体中文**
+![Dashboard ZH](docs/screenshots/11-dashboard-zh.png)
+
+</td>
+<td width="50%">
+
+**Monitor detail — 简体中文**
+![Monitor detail ZH](docs/screenshots/12-monitor-zh.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Public status page — 简体中文 (`?lang=zh`)**
+![Status page ZH](docs/screenshots/14-status-zh.png)
+
+</td>
+<td width="50%">
+
+**iPhone 13 — Chinese layout**
+<img src="docs/screenshots/15-mobile-zh.png" alt="Mobile Chinese" width="320">
+
+</td>
+</tr>
 <tr>
 <td width="50%">
 
@@ -75,22 +118,8 @@ questions:
 </td>
 <td width="50%">
 
-**Public status page — server-rendered**
-![Status page](docs/screenshots/06-status-page.png)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
 **Alerts — webhook / email channels**
 ![Settings](docs/screenshots/05-settings.png)
-
-</td>
-<td width="50%">
-
-**iPhone 13 (390 px) — responsive dashboard**
-<img src="docs/screenshots/08-mobile-dashboard.png" alt="Mobile dashboard" width="320">
 
 </td>
 </tr>
@@ -392,7 +421,7 @@ real value.
 ## Testing
 
 ```bash
-npm test          # unit + integration (Vitest, 138 tests)
+npm test          # unit + integration (Vitest, 152 tests)
 npm run typecheck # tsc over src/ and worker/
 npm run build     # production build
 ```
@@ -407,6 +436,7 @@ Unit suites cover the parts where a bug would be invisible or dangerous:
 | `tests/stats.test.ts` | 11 | bucket gaps, p95, downtime clipping, daily rollups |
 | `tests/crypto.test.ts` | 24 | PBKDF2 round-trip, pepper, AES-GCM envelope, HMAC, constant-time compare |
 | `tests/privacy.test.ts` | 12 | status page never leaks paths/query/emails; webhook payload never leaks secrets |
+| `tests/i18n.test.ts` | 14 | EN/ZH key parity, placeholder parity, no untranslated UI strings, status-page language negotiation, escaping in both languages |
 
 ### End-to-end against production
 
@@ -423,16 +453,42 @@ node e2e/recovery-check.mjs  https://sitepulse.changyuansex.workers.dev
 # 17 checks: desktop + iPhone 13 + 320px, overflow, tap targets, console errors;
 # also writes the screenshots used in this README
 node e2e/ui-check.mjs        https://sitepulse.changyuansex.workers.dev
+
+# 33 checks: language toggle, persistence, no untranslated keys on any page,
+# server-side ?lang= / Accept-Language on the public status page, mobile in ZH
+node e2e/lang-check.mjs      https://sitepulse.changyuansex.workers.dev
 ```
 
 Latest run against production:
 
 | Suite | Result |
 | --- | --- |
-| Unit / integration | **138 / 138 passing** |
+| Unit / integration | **152 / 152 passing** |
 | Production API + cron E2E | **70 / 70 passing** |
 | Recovery & incident lifecycle | **12 / 12 passing** |
 | Browser UI (desktop + iPhone 13 + 320 px) | **17 / 17 passing** |
+| Language / i18n | **33 / 33 passing** |
+
+## Internationalisation
+
+The UI ships in **English** and **简体中文**.
+
+- The switch lives in the top bar of every screen (`中` / `EN`). The choice is
+  stored in `localStorage` and mirrored into `?lang=` on the URL, so a reload,
+  a new tab, or a shared link cannot contradict it.
+- Default language follows `?lang=` → `localStorage` → `navigator.language`.
+- `src/lib/i18n.ts` holds a flat, type-checked dictionary: `zh` is declared as
+  `Record<keyof typeof en, string>`, so a missing Chinese string fails the
+  build instead of silently falling back to English.
+- API errors are localised by their stable error **code** (`rate_limited`,
+  `quota_exceeded`, …); an unrecognised code falls back to the server's own
+  message rather than a generic string.
+- Dates, times and durations use the matching locale (`zh-CN` / `en-US`).
+- The public status page is server-rendered, so it does not share the React
+  dictionary: it renders from its own table chosen by `?lang=` or
+  `Accept-Language`, and offers a plain `<a href="?lang=…">` switch that works
+  with JavaScript disabled. Responses carry `Vary: Accept-Language` and
+  `Content-Language`.
 
 ## Security
 
@@ -492,6 +548,10 @@ Honest list — these are real, not hypothetical:
    flow; the first account on a fresh install is promoted automatically.
 9. **Charts are SVG, not canvas.** Fine up to ~120 buckets; a 5-year view would
    need aggregation at the SQL layer.
+10. **Only two languages ship.** English and Simplified Chinese are maintained.
+    The UI dictionary lives in `src/lib/i18n.ts`; adding a third language means
+    adding one table, plus the server-rendered status page, which keeps its own
+    strings because it must render without JavaScript.
 
 ## Roadmap
 

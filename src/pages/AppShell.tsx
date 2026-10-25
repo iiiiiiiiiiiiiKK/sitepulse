@@ -4,6 +4,7 @@ import { signOutLocal, useSession } from '../lib/session';
 import { matchPath, navigateTo, useLocation } from '../router';
 import { TopBar, PageShell } from '../components/layout';
 import { ErrorState, LoadingPanel } from '../components/ui';
+import { useI18n } from '../lib/i18n';
 import { LandingPage } from './LandingPage';
 import { AuthPage } from './AuthPage';
 import { DashboardPage } from './DashboardPage';
@@ -13,6 +14,8 @@ import { SettingsPage } from './SettingsPage';
 export function AppShell() {
   const [path, navigate] = useLocation();
   const session = useSession();
+  // Subscribing here means the whole tree re-renders on a language switch.
+  const { t } = useI18n();
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -102,10 +105,7 @@ export function AppShell() {
         ) : pathOnly === '/app' ? (
           <DashboardPage />
         ) : (
-          <ErrorState
-            message="This page does not exist."
-            onRetry={() => navigateTo('/app')}
-          />
+          <ErrorState message={t('app.notFound')} onRetry={() => navigateTo('/app')} />
         )}
       </PageShell>
     </div>

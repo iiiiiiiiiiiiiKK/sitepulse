@@ -22,7 +22,22 @@ worker/
     ├── monitors.ts       /api/monitors/*
     ├── notifications.ts  /api/notifications/*
     ├── maintenance.ts    /api/maintenance/*
-    └── statuspage.ts     /status/:slug (server-rendered HTML + JSON)
+    └── statuspage.ts     /status/:slug (server-rendered HTML + JSON, EN/ZH)
+
+src/
+├── lib/
+│   ├── i18n.ts           EN/ZH dictionary, `t()`, `useI18n()`; `zh` is typed
+│   │                     as Record<keyof typeof en, string> so a missing
+│   │                     translation is a compile error
+│   ├── lang.ts           Active-language store (localStorage + `?lang=` sync)
+│   ├── format.ts         Locale-aware relative times, durations, dates, bytes
+│   └── session.ts        Session store shared by every component
+├── components/
+│   ├── layout.tsx        TopBar, LangToggle, XLink, PageShell
+│   ├── ui.tsx            Toasts, Modal, ConfirmDialog, StatusPill, states
+│   ├── charts.tsx        SVG response-time / availability charts + day strip
+│   └── MonitorForm.tsx   Shared create/edit form
+└── pages/                Landing, Auth, Dashboard, MonitorDetail, Settings
 ```
 
 The dependency direction is strictly one-way:
@@ -126,3 +141,24 @@ slot.
 | Email / account id | ✅ (own) | ❌ |
 | Notification config | ✅ | ❌ |
 | Signing secrets | masked | ❌ |
+
+## Internationalisation
+
+Two mechanisms, because two very different surfaces render text:
+
+| Surface | Mechanism | Why |
+| --- | --- | --- |
+| React app (`/`, `/app/*`) | `src/lib/i18n.ts` dictionary + `useI18n()` | Needs instant switching with no reload and typed key safety |
+| Public status page (`/status/:slug`) | Its own literal table in `worker/routes/statuspage.ts`, chosen by `?lang=` / `Accept-Language` | Must render with JavaScript disabled; a `<a href="?lang=zh">` link is the switch |
+
+Rules that keep them honest:
+
+- `zh` is declared `Record<keyof typeof en, string>`, so a forgotten string
+  fails `tsc` rather than shipping English inside a Chinese page.
+- `tests/i18n.test.ts` asserts key parity, placeholder parity (`{n}` in one
+  language must exist in the other), that no UI string is a copy of the English,
+  and that both status-page languages still escape user content.
+- API errors are localised from their stable `code`, never by matching English
+  prose, so a wording change on the server cannot break the client.
+- The chosen language is written to `localStorage` **and** mirrored into
+  `?lang=`, so reloads, new tabs and shared links agree with the last choice.

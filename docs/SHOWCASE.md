@@ -7,13 +7,19 @@ shipped product only — no roadmap items are presented as features.
 
 | File | What it shows |
 | --- | --- |
-| `docs/screenshots/01-landing.png` | Landing page, 1440×900 |
+| `docs/screenshots/09-landing-en.png` | Landing page (English), 1440×900 |
+| `docs/screenshots/10-landing-zh.png` | Landing page (简体中文) |
 | `docs/screenshots/02-new-monitor.png` | Create-monitor dialog |
-| `docs/screenshots/03-dashboard.png` | Dashboard with a live monitor |
+| `docs/screenshots/03-dashboard.png` | Dashboard with a live monitor (English) |
+| `docs/screenshots/11-dashboard-zh.png` | Dashboard (简体中文) |
 | `docs/screenshots/04-monitor-detail.png` | Charts, config, incident timeline |
+| `docs/screenshots/12-monitor-zh.png` | Monitor detail (简体中文) |
 | `docs/screenshots/05-settings.png` | Webhook / email channel management |
-| `docs/screenshots/06-status-page.png` | Public status page (server-rendered) |
-| `docs/screenshots/07-mobile-landing.png` | iPhone 13, landing |
+| `docs/screenshots/13-settings-zh.png` | Alerts page (简体中文) |
+| `docs/screenshots/06-status-page.png` | Public status page, English |
+| `docs/screenshots/14-status-zh.png` | Public status page, `?lang=zh` |
+| `docs/screenshots/07-mobile-landing.png` | iPhone 13, landing (English) |
+| `docs/screenshots/15-mobile-zh.png` | iPhone 13, landing (简体中文) |
 | `docs/screenshots/08-mobile-dashboard.png` | iPhone 13, dashboard |
 
 All screenshots were captured by `e2e/ui-check.mjs` from the live deployment at

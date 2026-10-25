@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AppStatus } from '../types';
+import { useI18n } from '../lib/i18n';
 
 /* -------------------------------------------------------------------------- */
 /* Toasts                                                                     */
@@ -47,7 +48,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-stack" role="status" aria-live="polite">
         {items.map((item) => (
-          <div key={item.id} className={`toast ${item.kind === 'ok' ? 'ok' : item.kind === 'err' ? 'err' : ''}`}>
+          <div
+            key={item.id}
+            className={`toast ${item.kind === 'ok' ? 'ok' : item.kind === 'err' ? 'err' : ''}`}
+          >
             {item.message}
           </div>
         ))}
@@ -72,33 +76,20 @@ const STATUS_CLASS: Record<AppStatus, string> = {
   unknown: 'unknown',
 };
 
-const STATUS_TEXT: Record<AppStatus, string> = {
-  up: 'Operational',
-  down: 'Down',
-  recovering: 'Recovering',
-  paused: 'Paused',
-  unknown: 'Unknown',
-};
-
-export function StatusPill({
-  status,
-  live = false,
-}: {
-  status: AppStatus;
-  live?: boolean;
-}) {
+export function StatusPill({ status, live = false }: { status: AppStatus; live?: boolean }) {
+  const { t } = useI18n();
   return (
     <span
       className={`pill ${STATUS_CLASS[status]} ${live && status === 'up' ? 'pill-live' : ''}`}
       title={
         status === 'unknown'
-          ? 'No probe has completed yet — this is not the same as "down".'
+          ? t('status.unknownHint')
           : status === 'paused'
-            ? 'Monitoring is paused; no probes run while paused.'
+            ? t('status.pausedHint')
             : undefined
       }
     >
-      {STATUS_TEXT[status]}
+      {t(`status.${status}` as 'status.up')}
     </span>
   );
 }
@@ -120,6 +111,8 @@ export function Modal({
   onClose: () => void;
   footer?: ReactNode;
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -145,9 +138,13 @@ export function Modal({
         <div className="modal-head">
           <div>
             <h2 style={{ fontSize: 16 }}>{title}</h2>
-            {subtitle ? <p className="small muted" style={{ margin: '3px 0 0' }}>{subtitle}</p> : null}
+            {subtitle ? (
+              <p className="small muted" style={{ margin: '3px 0 0' }}>
+                {subtitle}
+              </p>
+            ) : null}
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close dialog">
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t('common.close')}>
             ✕
           </button>
         </div>
@@ -165,7 +162,7 @@ export function Modal({
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   danger = false,
   busy = false,
   onConfirm,
@@ -179,6 +176,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Modal
       title={title}
@@ -186,14 +184,14 @@ export function ConfirmDialog({
       footer={
         <>
           <button className="btn" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? <span className="spinner" /> : confirmLabel}
+            {busy ? <span className="spinner" /> : (confirmLabel ?? t('common.save'))}
           </button>
         </>
       }
@@ -225,25 +223,20 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry?: () => void;
-}) {
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="panel panel-pad" role="alert">
       <div className="form-error">
         <span aria-hidden="true">⚠</span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 620, marginBottom: 2 }}>Could not load data</div>
+          <div style={{ fontWeight: 620, marginBottom: 2 }}>{t('common.couldNotLoad')}</div>
           <div>{message}</div>
         </div>
       </div>
       {onRetry ? (
         <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={onRetry}>
-          Retry
+          {t('common.retry')}
         </button>
       ) : null}
     </div>

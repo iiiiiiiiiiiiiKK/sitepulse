@@ -5,6 +5,7 @@ import {
   ConfirmDialog,
   ErrorState,
   LoadingPanel,
+  Modal,
   StatusPill,
   useToast,
 } from '../components/ui';
@@ -18,16 +19,14 @@ import {
   formatRelative,
   hostOf,
 } from '../lib/format';
+import { useI18n } from '../lib/i18n';
 import { MonitorForm, type MonitorFormValues } from '../components/MonitorForm';
 
-const RANGES: Array<{ key: '24h' | '7d' | '30d'; label: string }> = [
-  { key: '24h', label: '24 hours' },
-  { key: '7d', label: '7 days' },
-  { key: '30d', label: '30 days' },
-];
+type RangeKey = '24h' | '7d' | '30d';
 
 export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
-  const [range, setRange] = useState<'24h' | '7d' | '30d'>('24h');
+  const { t } = useI18n();
+  const [range, setRange] = useState<RangeKey>('24h');
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +35,12 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const toast = useToast();
+
+  const ranges: Array<{ key: RangeKey; label: string }> = [
+    { key: '24h', label: t('detail.range24h') },
+    { key: '7d', label: t('detail.range7d') },
+    { key: '30d', label: t('detail.range30d') },
+  ];
 
   const load = useCallback(
     async (silent = false) => {
@@ -49,14 +54,14 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
           setError(
             caught instanceof ApiClientError || caught instanceof NetworkError
               ? caught.message
-              : 'Could not load this monitor.'
+              : t('common.couldNotLoad')
           );
         }
       } finally {
         setLoading(false);
       }
     },
-    [monitorId, range]
+    [monitorId, range, t]
   );
 
   useEffect(() => {
@@ -77,7 +82,7 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       recoveryThreshold: values.recoveryThreshold,
     });
     setEditing(false);
-    toast.push('Monitor updated.', 'ok');
+    toast.push(t('dash.updated'), 'ok');
     await load(true);
   };
 
@@ -87,17 +92,17 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
     try {
       if (detail.monitor.status === 'paused') {
         await api.resumeMonitor(monitorId);
-        toast.push('Monitor resumed.', 'ok');
+        toast.push(t('detail.resumed'), 'ok');
       } else {
         await api.pauseMonitor(monitorId);
-        toast.push('Monitor paused. No probes will run.', 'ok');
+        toast.push(t('detail.pausedToast'), 'ok');
       }
       await load(true);
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Action failed.',
+          : t('detail.actionFailed'),
         'err'
       );
     } finally {
@@ -108,13 +113,13 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
   const checkNow = async () => {
     setBusy(true);
     try {
-      const result = await api.checkNow(monitorId);
-      toast.push(result.message, 'ok');
+      await api.checkNow(monitorId);
+      toast.push(t('dash.checkQueued'), 'ok');
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Could not queue a check.',
+          : t('detail.checkFailed'),
         'err'
       );
     } finally {
@@ -127,18 +132,13 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
     setBusy(true);
     try {
       await api.updateMonitor(monitorId, { isPublic: !detail.monitor.isPublic });
-      toast.push(
-        detail.monitor.isPublic
-          ? 'Status page is now private.'
-          : 'Public status page enabled.',
-        'ok'
-      );
+      toast.push(detail.monitor.isPublic ? t('detail.unpublished') : t('detail.published'), 'ok');
       await load(true);
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Could not change visibility.',
+          : t('detail.visibilityFailed'),
         'err'
       );
     } finally {
@@ -150,12 +150,19 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
     setTesting(true);
     try {
       const result = await api.testMonitorNotifications(monitorId);
-      toast.push(result.summary.message, result.summary.failed > 0 ? 'err' : 'ok');
+      const { sent, failed, skipped } = result.summary;
+      // The server's summary sentence is English; rebuild it from counts so the
+      // toast follows the active language, and keep its "no channels" special case.
+      const message =
+        result.outcomes.length === 0
+          ? t('detail.noChannels')
+          : t('detail.testSummary', { sent, failed, skipped });
+      toast.push(message, failed > 0 ? 'err' : 'ok');
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Test notification failed.',
+          : t('detail.testFailed'),
         'err'
       );
     } finally {
@@ -167,14 +174,14 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
     setBusy(true);
     try {
       await api.deleteMonitor(monitorId);
-      toast.push('Monitor deleted.', 'ok');
+      toast.push(t('detail.deleted'), 'ok');
       window.history.pushState({}, '', '/app');
       window.dispatchEvent(new PopStateEvent('popstate'));
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Delete failed.',
+          : t('dash.deleteFailed'),
         'err'
       );
       setBusy(false);
@@ -192,7 +199,7 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
     <div className="stack" style={{ gap: 16 }}>
       <div className="row" style={{ gap: 8 }}>
         <a className="btn btn-sm btn-ghost" href="/app">
-          ← Monitors
+          {t('detail.back')}
         </a>
       </div>
 
@@ -206,16 +213,20 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn btn-sm" onClick={checkNow} disabled={busy || !monitor.enabled}>
-            Check now
+            {t('dash.checkNow')}
           </button>
           <button className="btn btn-sm" onClick={togglePause} disabled={busy}>
-            {monitor.status === 'paused' ? 'Resume' : 'Pause'}
+            {monitor.status === 'paused' ? t('dash.resume') : t('dash.pause')}
           </button>
           <button className="btn btn-sm" onClick={() => setEditing(true)} disabled={busy}>
-            Edit
+            {t('common.edit')}
           </button>
-          <button className="btn btn-sm btn-danger" onClick={() => setDeleting(true)} disabled={busy}>
-            Delete
+          <button
+            className="btn btn-sm btn-danger"
+            onClick={() => setDeleting(true)}
+            disabled={busy}
+          >
+            {t('common.delete')}
           </button>
         </div>
       </div>
@@ -226,10 +237,13 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
             <StatusPill status="down" />
             <div>
               <div style={{ fontWeight: 620, fontSize: 14 }}>
-                Ongoing incident · {formatDuration(openIncident.durationSeconds)}
+                {t('detail.ongoing', { duration: formatDuration(openIncident.durationSeconds) })}
               </div>
               <div className="small muted">
-                Started {formatDateTime(openIncident.startedAt)} · {openIncident.summary ?? 'Probe failure'}
+                {t('detail.started', {
+                  when: formatDateTime(openIncident.startedAt),
+                  summary: openIncident.summary ?? 'Probe failure',
+                })}
               </div>
             </div>
           </div>
@@ -237,8 +251,8 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       ) : null}
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="row" role="tablist" aria-label="Statistics period">
-          {RANGES.map((item) => (
+        <div className="row" role="tablist" aria-label={t('detail.period')}>
+          {ranges.map((item) => (
             <button
               key={item.key}
               role="tab"
@@ -251,66 +265,68 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
           ))}
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <a
-            className="btn btn-sm"
-            href={api.exportUrl(monitorId, 'csv', range)}
-            download
-            title="Download raw checks as CSV"
-          >
-            Export CSV
+          <a className="btn btn-sm" href={api.exportUrl(monitorId, 'csv', range)} download>
+            {t('detail.exportCsv')}
           </a>
-          <a
-            className="btn btn-sm"
-            href={api.exportUrl(monitorId, 'json', range)}
-            download
-            title="Download checks and incidents as JSON"
-          >
-            Export JSON
+          <a className="btn btn-sm" href={api.exportUrl(monitorId, 'json', range)} download>
+            {t('detail.exportJson')}
           </a>
         </div>
       </div>
 
       <div className="stat-grid">
-        <div className={`stat ${stats.availability === null ? '' : (stats.availability ?? 0) >= 99 ? 'stat-accent-up' : 'stat-accent-down'}`}>
-          <div className="stat-label">Availability</div>
+        <div
+          className={`stat ${
+            stats.availability === null
+              ? ''
+              : (stats.availability ?? 0) >= 99
+                ? 'stat-accent-up'
+                : 'stat-accent-down'
+          }`}
+        >
+          <div className="stat-label">{t('detail.availability')}</div>
           <div className="stat-value">{formatPercent(stats.availability)}</div>
-          <div className="stat-sub">{stats.totalChecks} probes · {stats.failedChecks} failed</div>
+          <div className="stat-sub">
+            {t('detail.probesFailed', {
+              total: stats.totalChecks,
+              failed: stats.failedChecks,
+            })}
+          </div>
         </div>
         <div className="stat">
-          <div className="stat-label">Downtime</div>
+          <div className="stat-label">{t('detail.downtime')}</div>
           <div className="stat-value">{formatDuration(stats.downtimeSeconds)}</div>
-          <div className="stat-sub">from incident records</div>
+          <div className="stat-sub">{t('detail.fromIncidents')}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Avg response</div>
+          <div className="stat-label">{t('detail.avgResponse')}</div>
           <div className="stat-value">{formatMs(stats.avgResponseMs)}</div>
           <div className="stat-sub">
-            p95 {formatMs(stats.p95ResponseMs)}
+            {t('detail.p95', { value: formatMs(stats.p95ResponseMs) })}
           </div>
         </div>
         <div className="stat">
-          <div className="stat-label">Last success</div>
+          <div className="stat-label">{t('detail.lastSuccess')}</div>
           <div className="stat-value" style={{ fontSize: 18 }}>
-            {monitor.lastSuccessAt ? formatRelative(monitor.lastSuccessAt) : 'never'}
+            {monitor.lastSuccessAt ? formatRelative(monitor.lastSuccessAt) : t('common.never')}
           </div>
           <div className="stat-sub">
-            {monitor.lastStatusCode ? `HTTP ${monitor.lastStatusCode}` : 'no probe yet'}
+            {monitor.lastStatusCode ? `HTTP ${monitor.lastStatusCode}` : t('detail.noProbeYet')}
           </div>
         </div>
       </div>
 
       {stats.retentionLimited ? (
         <p className="small muted" style={{ margin: 0 }}>
-          Note: your plan keeps {stats.retentionDays} days of probe history, so older samples in this
-          window have already been pruned. Sample counts above reflect stored data only.
+          {t('detail.retentionNote', { days: stats.retentionDays })}
         </p>
       ) : null}
 
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>Response time</h2>
-            <p>Average per bucket · empty buckets are real gaps, not zeroes</p>
+            <h2>{t('detail.responseTitle')}</h2>
+            <p>{t('detail.responseSub')}</p>
           </div>
         </div>
         <div className="panel-pad">
@@ -321,15 +337,15 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>Availability per bucket</h2>
-            <p>Green ≥ 99.5% · amber ≥ 90% · red below that</p>
+            <h2>{t('detail.availabilityTitle')}</h2>
+            <p>{t('detail.availabilitySub')}</p>
           </div>
         </div>
         <div className="panel-pad">
           <AvailabilityChart buckets={detail.buckets} />
           <div style={{ marginTop: 14 }}>
             <div className="small muted" style={{ marginBottom: 5 }}>
-              Daily rollup
+              {t('detail.dailyRollup')}
             </div>
             <UptimeStrip daily={detail.daily} />
           </div>
@@ -340,27 +356,28 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Incident timeline</h2>
-              <p>{detail.incidents.length} incident(s) in retained history</p>
+              <h2>{t('detail.incidentTitle')}</h2>
+              <p>{t('detail.incidentCount', { n: detail.incidents.length })}</p>
             </div>
           </div>
           <div className="panel-pad">
             {detail.incidents.length === 0 ? (
               <p className="small muted" style={{ margin: 0 }}>
-                No incidents recorded. Probes have either all succeeded, or the failures stayed below
-                your threshold of {monitor.failureThreshold}.
+                {t('detail.noIncidents', { n: monitor.failureThreshold })}
               </p>
             ) : (
               <ul className="timeline">
                 {detail.incidents.map((incident) => (
                   <li key={incident.id} className={incident.resolvedAt ? 'resolved' : ''}>
                     <div className="tl-title">
-                      {incident.resolvedAt ? 'Resolved' : 'Ongoing'} ·{' '}
+                      {incident.resolvedAt ? t('detail.resolved') : t('detail.ongoingWord')} ·{' '}
                       {formatDuration(incident.durationSeconds)}
                     </div>
                     <div className="tl-meta">
                       {formatDateTime(incident.startedAt)}
-                      {incident.resolvedAt ? ` → ${formatDateTime(incident.resolvedAt)}` : ' → now'}
+                      {incident.resolvedAt
+                        ? ` → ${formatDateTime(incident.resolvedAt)}`
+                        : t('detail.toNow')}
                     </div>
                     <div className="tl-meta" style={{ color: 'var(--text-dim)' }}>
                       {incident.summary ?? incident.cause ?? 'Probe failure'}
@@ -377,43 +394,43 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
           <div className="panel">
             <div className="panel-head">
               <div>
-                <h2>Configuration</h2>
-                <p>What this monitor actually does</p>
+                <h2>{t('detail.configTitle')}</h2>
+                <p>{t('detail.configSub')}</p>
               </div>
             </div>
             <div className="panel-pad stack" style={{ gap: 9 }}>
-              <ConfigRow label="Method" value={monitor.method} />
-              <ConfigRow label="Interval" value={formatInterval(monitor.intervalSeconds)} />
-              <ConfigRow label="Timeout" value={formatMs(monitor.timeoutMs)} />
-              <ConfigRow label="Expected status" value={monitor.expectedStatus} />
+              <ConfigRow label={t('detail.method')} value={monitor.method} />
+              <ConfigRow label={t('detail.interval')} value={formatInterval(monitor.intervalSeconds)} />
+              <ConfigRow label={t('detail.timeout')} value={formatMs(monitor.timeoutMs)} />
+              <ConfigRow label={t('detail.expected')} value={monitor.expectedStatus} />
               <ConfigRow
-                label="Alert after"
-                value={`${monitor.failureThreshold} consecutive failure(s)`}
+                label={t('detail.alertAfter')}
+                value={t('detail.alertAfterValue', { n: monitor.failureThreshold })}
               />
               <ConfigRow
-                label="Recover after"
-                value={`${monitor.recoveryThreshold} consecutive success(es)`}
+                label={t('detail.recoverAfter')}
+                value={t('detail.recoverAfterValue', { n: monitor.recoveryThreshold })}
               />
-              <ConfigRow label="Next check" value={formatRelative(monitor.nextCheckAt)} />
-              <ConfigRow label="Created" value={formatDateTime(monitor.createdAt)} />
+              <ConfigRow label={t('detail.nextCheck')} value={formatRelative(monitor.nextCheckAt)} />
+              <ConfigRow label={t('detail.created')} value={formatDateTime(monitor.createdAt)} />
             </div>
           </div>
 
           <div className="panel">
             <div className="panel-head">
               <div>
-                <h2>Public status page</h2>
-                <p>Only the hostname and status are published</p>
+                <h2>{t('detail.publicTitle')}</h2>
+                <p>{t('detail.publicSub')}</p>
               </div>
               <button className="btn btn-sm" onClick={togglePublic} disabled={busy}>
-                {monitor.isPublic ? 'Make private' : 'Publish'}
+                {monitor.isPublic ? t('detail.unpublish') : t('detail.publish')}
               </button>
             </div>
             <div className="panel-pad stack" style={{ gap: 10 }}>
               {monitor.isPublic && monitor.publicUrl ? (
                 <>
                   <div className="field">
-                    <label>Public URL</label>
+                    <label>{t('detail.publicUrl')}</label>
                     <input className="input mono" readOnly value={monitor.publicUrl} />
                   </div>
                   <div className="row">
@@ -423,7 +440,7 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      Open page ↗
+                      {t('detail.openPage')}
                     </a>
                     <a
                       className="btn btn-sm"
@@ -431,26 +448,24 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      JSON feed ↗
+                      {t('detail.jsonFeed')}
                     </a>
                     <button
                       className="btn btn-sm"
                       onClick={() => {
                         void navigator.clipboard
                           ?.writeText(monitor.publicUrl ?? '')
-                          .then(() => toast.push('Status page URL copied.', 'ok'))
-                          .catch(() => toast.push('Could not access the clipboard.', 'err'));
+                          .then(() => toast.push(t('detail.copied'), 'ok'))
+                          .catch(() => toast.push(t('detail.clipboardFailed'), 'err'));
                       }}
                     >
-                      Copy link
+                      {t('detail.copyLink')}
                     </button>
                   </div>
                 </>
               ) : (
                 <p className="small muted" style={{ margin: 0 }}>
-                  This monitor's status is private. Publishing exposes the display name, hostname,
-                  availability and incident durations to anyone with the link — never the full URL
-                  path, headers or error stack traces.
+                  {t('detail.privateNote')}
                 </p>
               )}
             </div>
@@ -459,21 +474,21 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
           <div className="panel">
             <div className="panel-head">
               <div>
-                <h2>Alerts</h2>
-                <p>Channels configured for this monitor</p>
+                <h2>{t('detail.alertsTitle')}</h2>
+                <p>{t('detail.alertsSub')}</p>
               </div>
               <button className="btn btn-sm" onClick={testNotification} disabled={testing}>
-                {testing ? <span className="spinner" /> : 'Send test'}
+                {testing ? <span className="spinner" /> : t('detail.sendTest')}
               </button>
             </div>
             <div className="panel-pad">
               <p className="small muted" style={{ margin: '0 0 10px' }}>
-                Manage webhook and email destinations on the{' '}
-                <a href="/app/settings">alerts page</a>. Test deliveries are logged with their real
-                result.
+                {t('detail.alertsNotePre')}
+                <a href="/app/settings">{t('detail.alertsLink')}</a>
+                {t('detail.alertsNotePost')}
               </p>
               <a className="btn btn-sm" href="/app/settings">
-                Manage alert channels
+                {t('detail.manageChannels')}
               </a>
             </div>
           </div>
@@ -483,17 +498,17 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>Recent probes</h2>
-            <p>Last {detail.recentChecks.length} samples, newest first</p>
+            <h2>{t('detail.recentTitle')}</h2>
+            <p>{t('detail.recentSub', { n: detail.recentChecks.length })}</p>
           </div>
         </div>
         <div className="table-scroll">
           <table className="data">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Result</th>
-                <th>Response</th>
+                <th>{t('detail.colTime')}</th>
+                <th>{t('detail.colResult')}</th>
+                <th>{t('detail.colResponse')}</th>
               </tr>
             </thead>
             <tbody>
@@ -502,7 +517,7 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
                   <td className="mono">{formatDateTime(check.checkedAt)}</td>
                   <td>
                     <span className={`pill ${check.ok ? 'up' : 'down'}`}>
-                      {check.ok ? 'OK' : 'Failed'}
+                      {check.ok ? t('detail.ok') : t('detail.failed')}
                     </span>
                   </td>
                   <td>{formatMs(check.responseMs)}</td>
@@ -511,7 +526,7 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
               {detail.recentChecks.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="muted">
-                    No probes stored yet for this window.
+                    {t('detail.noProbes')}
                   </td>
                 </tr>
               ) : null}
@@ -521,31 +536,21 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       </section>
 
       {editing ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit monitor">
-            <div className="modal-head">
-              <h2 style={{ fontSize: 16 }}>Edit {monitor.name}</h2>
-              <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <MonitorForm
-                initial={monitor}
-                submitLabel="Save changes"
-                onSubmit={handleUpdate}
-                onCancel={() => setEditing(false)}
-              />
-            </div>
-          </div>
-        </div>
+        <Modal title={t('detail.editTitle', { name: monitor.name })} onClose={() => setEditing(false)}>
+          <MonitorForm
+            initial={monitor}
+            submitLabel={t('form.save')}
+            onSubmit={handleUpdate}
+            onCancel={() => setEditing(false)}
+          />
+        </Modal>
       ) : null}
 
       {deleting ? (
         <ConfirmDialog
-          title={`Delete ${monitor.name}?`}
-          message="All probe history and incidents for this monitor are permanently deleted."
-          confirmLabel="Delete monitor"
+          title={t('detail.deleteTitle', { name: monitor.name })}
+          message={t('detail.deleteBody')}
+          confirmLabel={t('detail.deleteConfirm')}
           danger
           busy={busy}
           onConfirm={() => void handleDelete()}
@@ -554,7 +559,10 @@ export function MonitorDetailPage({ monitorId }: { monitorId: string }) {
       ) : null}
 
       <p className="small muted" style={{ margin: 0 }}>
-        Monitoring {hostOf(monitor.url)} · data retained for {stats.retentionDays} days on your plan.
+        {t('detail.monitoring', {
+          host: hostOf(monitor.url),
+          days: stats.retentionDays,
+        })}
       </p>
     </div>
   );

@@ -215,6 +215,50 @@ code,
   line-height: 1;
 }
 
+/* ---------- language switch --------------------------------------------- */
+.lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.lang-toggle:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--panel-3);
+  transform: translateY(-1px);
+}
+.lang-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lang-toggle .lang-glyph {
+  font-size: 12.5px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 16px;
+  text-align: center;
+}
+.lang-toggle[data-lang='zh'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--accent-soft);
+}
+
 main {
   flex: 1;
   padding: 26px 0 64px;
@@ -996,8 +1040,17 @@ table.data tr:last-child td {
     padding: 18px 0 48px;
   }
   .topbar-inner {
-    height: 56px;
-    gap: 8px;
+    /* The bar carries the brand, two nav links, the language switch, the X link,
+       a plan pill and sign-out. On a phone that does not fit on one line, so it
+       wraps onto a second row instead of pushing past the viewport. */
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    row-gap: 8px;
+  }
+  .topbar-spacer {
+    min-width: 0;
   }
   .brand span.brand-text {
     display: none;
@@ -1007,7 +1060,7 @@ table.data tr:last-child td {
     gap: 2px;
   }
   .nav-link {
-    padding: 7px 10px;
+    padding: 8px 10px;
     font-size: 13px;
   }
   .x-link .x-label {
@@ -1015,6 +1068,14 @@ table.data tr:last-child td {
   }
   .x-link {
     padding: 7px 9px;
+    min-height: 32px;
+  }
+  .lang-toggle {
+    padding: 7px 9px;
+    min-height: 32px;
+  }
+  .lang-toggle .lang-label {
+    display: none;
   }
   .grid-2 {
     grid-template-columns: minmax(0, 1fr);

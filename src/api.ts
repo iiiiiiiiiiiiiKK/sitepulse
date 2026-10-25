@@ -8,6 +8,29 @@
  *    honest message instead of a generic "something went wrong"
  */
 
+import { t, type DictKey } from './lib/i18n';
+
+/**
+ * The Worker returns stable error *codes* alongside English messages. When a
+ * code is known we show the localised string; otherwise we fall back to the
+ * server's own message so a new backend error is never swallowed.
+ */
+const CODE_KEYS: Record<string, DictKey> = {
+  rate_limited: 'api.rate_limited',
+  invalid_credentials: 'api.invalid_credentials',
+  email_taken: 'api.email_taken',
+  quota_exceeded: 'api.quota_exceeded',
+  unauthenticated: 'api.unauthenticated',
+  not_found: 'api.not_found',
+  paused: 'api.paused',
+  already_queued: 'api.already_queued',
+  not_configured: 'api.not_configured',
+  payload_too_large: 'api.payload_too_large',
+  invalid_json: 'api.invalid_json',
+  method_not_allowed: 'api.method_not_allowed',
+  internal: 'api.internal',
+};
+
 export class ApiClientError extends Error {
   status: number;
   code: string;
@@ -19,8 +42,8 @@ export class ApiClientError extends Error {
 }
 
 export class NetworkError extends Error {
-  constructor(message = 'Cannot reach the SitePulse API. Check your connection and retry.') {
-    super(message);
+  constructor(message?: string) {
+    super(message ?? t('toast.network'));
     this.name = 'NetworkError';
   }
 }
@@ -48,7 +71,7 @@ async function request<T>(
   } catch (error) {
     clearTimeout(timer);
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new NetworkError('The request timed out. The server may be busy — try again.');
+      throw new NetworkError(t('toast.timeout'));
     }
     throw new NetworkError();
   }
@@ -68,11 +91,12 @@ async function request<T>(
 
   if (!response.ok) {
     const errorBody = payload as { error?: { message?: string; code?: string } } | null;
-    throw new ApiClientError(
-      response.status,
-      errorBody?.error?.message ?? `Request failed with HTTP ${response.status}.`,
-      errorBody?.error?.code ?? 'error'
-    );
+    const code = errorBody?.error?.code ?? 'error';
+    const key = CODE_KEYS[code];
+    const message = key
+      ? t(key)
+      : (errorBody?.error?.message ?? `HTTP ${response.status}`);
+    throw new ApiClientError(response.status, message, code);
   }
   return (payload ?? {}) as T;
 }

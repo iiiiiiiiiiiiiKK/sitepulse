@@ -3,8 +3,10 @@ import { api, ApiClientError, NetworkError } from '../api';
 import type { Channel, Delivery, Maintenance, Monitor } from '../types';
 import { ConfirmDialog, ErrorState, Field, LoadingPanel, useToast } from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
+import { useI18n } from '../lib/i18n';
 
 export function SettingsPage() {
+  const { t, lang } = useI18n();
   const [channels, setChannels] = useState<Channel[] | null>(null);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [emailConfigured, setEmailConfigured] = useState(false);
@@ -47,10 +49,10 @@ export function SettingsPage() {
       setError(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Could not load alert settings.'
+          : t('common.couldNotLoad')
       );
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -60,7 +62,7 @@ export function SettingsPage() {
     event.preventDefault();
     setFormError(null);
     if (!target.trim()) {
-      setFormError(kind === 'webhook' ? 'Enter the webhook URL.' : 'Enter the email address.');
+      setFormError(kind === 'webhook' ? t('settings.errTargetWebhook') : t('settings.errTargetEmail'));
       return;
     }
     setBusy(true);
@@ -75,13 +77,13 @@ export function SettingsPage() {
       setTarget('');
       setSecret('');
       if (result.warning) toast.push(result.warning, 'err');
-      else toast.push('Alert channel created.', 'ok');
+      else toast.push(t('settings.created'), 'ok');
       void load();
     } catch (caught) {
       setFormError(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Could not create the channel.'
+          : t('settings.createFailed')
       );
     } finally {
       setBusy(false);
@@ -99,7 +101,7 @@ export function SettingsPage() {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Update failed.',
+          : t('settings.updateFailed'),
         'err'
       );
     } finally {
@@ -113,18 +115,21 @@ export function SettingsPage() {
       const result = await api.testChannel(channel.id);
       const outcome = result.outcomes[0];
       if (!outcome) {
-        toast.push('No delivery was attempted.', 'err');
+        toast.push(t('settings.noDeliveryAttempt'), 'err');
       } else if (outcome.status === 'sent') {
-        toast.push(`Test delivered: ${outcome.detail}`, 'ok');
+        toast.push(t('settings.testDelivered', { detail: outcome.detail }), 'ok');
       } else {
-        toast.push(`Test ${outcome.status}: ${outcome.detail}`, 'err');
+        toast.push(
+          t('settings.testResult', { status: outcome.status, detail: outcome.detail }),
+          'err'
+        );
       }
       void load();
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Test failed.',
+          : t('settings.testFailed'),
         'err'
       );
     } finally {
@@ -139,13 +144,13 @@ export function SettingsPage() {
       await api.deleteChannel(deleting.id);
       setChannels((prev) => (prev ? prev.filter((item) => item.id !== deleting.id) : prev));
       setDeleting(null);
-      toast.push('Channel deleted.', 'ok');
+      toast.push(t('settings.deleted'), 'ok');
       void load();
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Delete failed.',
+          : t('dash.deleteFailed'),
         'err'
       );
     } finally {
@@ -157,17 +162,17 @@ export function SettingsPage() {
     event.preventDefault();
     setMError(null);
     if (!mTitle.trim()) {
-      setMError('Give the maintenance window a title.');
+      setMError(t('settings.mErrTitle'));
       return;
     }
     const startsAt = new Date(mStart).getTime();
     const endsAt = new Date(mEnd).getTime();
     if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) {
-      setMError('Pick a start and end time.');
+      setMError(t('settings.mErrTime'));
       return;
     }
     if (endsAt <= startsAt) {
-      setMError('The end time must be after the start time.');
+      setMError(t('settings.mErrOrder'));
       return;
     }
     setBusy(true);
@@ -183,12 +188,12 @@ export function SettingsPage() {
       setMBody('');
       setMStart('');
       setMEnd('');
-      toast.push('Maintenance announcement published.', 'ok');
+      toast.push(t('settings.mCreated'), 'ok');
     } catch (caught) {
       setMError(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Could not publish the announcement.'
+          : t('settings.mFailed')
       );
     } finally {
       setBusy(false);
@@ -202,12 +207,12 @@ export function SettingsPage() {
       await api.deleteMaintenance(deletingMaintenance.id);
       setMaintenance((prev) => prev.filter((item) => item.id !== deletingMaintenance.id));
       setDeletingMaintenance(null);
-      toast.push('Maintenance announcement removed.', 'ok');
+      toast.push(t('settings.mDeleted'), 'ok');
     } catch (caught) {
       toast.push(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Delete failed.',
+          : t('dash.deleteFailed'),
         'err'
       );
     } finally {
@@ -218,24 +223,20 @@ export function SettingsPage() {
   if (error) return <ErrorState message={error} onRetry={() => void load()} />;
   if (!channels) return <LoadingPanel rows={4} />;
 
+  const isZh = lang === 'zh';
+
   return (
     <div className="stack" style={{ gap: 16 }}>
       <div>
-        <h1 className="page-title">Alerts &amp; status pages</h1>
-        <p className="page-sub">
-          Webhook and email destinations, plus scheduled maintenance announcements.
-        </p>
+        <h1 className="page-title">{t('settings.title')}</h1>
+        <p className="page-sub">{t('settings.sub')}</p>
       </div>
 
       {!emailConfigured ? (
         <div className="panel panel-pad">
           <div className="form-error" style={{ margin: 0 }}>
             <span aria-hidden="true">ℹ</span>
-            <span>
-              Email delivery is not configured on this deployment (no <code>EMAIL_API_KEY</code>).
-              Email channels are saved, and each delivery is recorded as <strong>skipped</strong>{' '}
-              with that reason — nothing pretends to have been sent.
-            </span>
+            <span>{t('settings.emailMissing')}</span>
           </div>
         </div>
       ) : null}
@@ -244,8 +245,8 @@ export function SettingsPage() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>New alert channel</h2>
-              <p>Webhooks are signed with HMAC-SHA256</p>
+              <h2>{t('settings.newChannel')}</h2>
+              <p>{t('settings.newChannelSub')}</p>
             </div>
           </div>
           <form className="panel-pad stack" onSubmit={createChannel} noValidate>
@@ -256,25 +257,21 @@ export function SettingsPage() {
               </div>
             ) : null}
 
-            <Field label="Channel type" htmlFor="channel-kind">
+            <Field label={t('settings.kind')} htmlFor="channel-kind">
               <select
                 id="channel-kind"
                 className="select"
                 value={kind}
                 onChange={(event) => setKind(event.target.value as 'webhook' | 'email')}
               >
-                <option value="webhook">Webhook (HTTP POST)</option>
-                <option value="email">Email</option>
+                <option value="webhook">{t('settings.kindWebhook')}</option>
+                <option value="email">{t('settings.kindEmail')}</option>
               </select>
             </Field>
 
             <Field
-              label={kind === 'webhook' ? 'Webhook URL' : 'Email address'}
-              hint={
-                kind === 'webhook'
-                  ? 'Receives a JSON POST with an X-SitePulse-Signature header. Redirects are not followed.'
-                  : 'Delivery requires EMAIL_API_KEY on the server.'
-              }
+              label={kind === 'webhook' ? t('settings.webhookUrl') : t('settings.emailAddress')}
+              hint={kind === 'webhook' ? t('settings.webhookHint') : t('settings.emailHint')}
               htmlFor="channel-target"
             >
               <input
@@ -282,18 +279,16 @@ export function SettingsPage() {
                 className="input"
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
-                placeholder={kind === 'webhook' ? 'https://hooks.example.com/sitepulse' : 'oncall@example.com'}
+                placeholder={
+                  kind === 'webhook' ? 'https://hooks.example.com/sitepulse' : 'oncall@example.com'
+                }
                 inputMode={kind === 'webhook' ? 'url' : 'email'}
                 spellCheck={false}
               />
             </Field>
 
             {kind === 'webhook' ? (
-              <Field
-                label="Signing secret (optional)"
-                hint="Stored AES-GCM encrypted. Sent as X-SitePulse-Signature — verify it on your side."
-                htmlFor="channel-secret"
-              >
+              <Field label={t('settings.secret')} hint={t('settings.secretHint')} htmlFor="channel-secret">
                 <input
                   id="channel-secret"
                   className="input"
@@ -306,18 +301,14 @@ export function SettingsPage() {
               </Field>
             ) : null}
 
-            <Field
-              label="Applies to"
-              hint="Leave on “All monitors” to alert for everything."
-              htmlFor="channel-monitor"
-            >
+            <Field label={t('settings.appliesTo')} hint={t('settings.appliesHint')} htmlFor="channel-monitor">
               <select
                 id="channel-monitor"
                 className="select"
                 value={monitorId}
                 onChange={(event) => setMonitorId(event.target.value)}
               >
-                <option value="">All monitors</option>
+                <option value="">{t('settings.allMonitors')}</option>
                 {monitors.map((monitor) => (
                   <option key={monitor.id} value={monitor.id}>
                     {monitor.name}
@@ -328,7 +319,7 @@ export function SettingsPage() {
 
             <button className="btn btn-primary" type="submit" disabled={busy}>
               {busy ? <span className="spinner" /> : null}
-              {busy ? 'Saving…' : 'Add channel'}
+              {busy ? t('common.saving') : t('settings.addChannel')}
             </button>
           </form>
         </section>
@@ -336,15 +327,14 @@ export function SettingsPage() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Configured channels</h2>
-              <p>{channels.length} channel(s)</p>
+              <h2>{t('settings.channels')}</h2>
+              <p>{t('settings.channelCount', { n: channels.length })}</p>
             </div>
           </div>
           <div className="panel-pad stack" style={{ gap: 10 }}>
             {channels.length === 0 ? (
               <p className="small muted" style={{ margin: 0 }}>
-                No channels yet. Create one on the left; monitors will then open incidents with real
-                notifications.
+                {t('settings.noChannels')}
               </p>
             ) : null}
             {channels.map((channel) => (
@@ -363,14 +353,14 @@ export function SettingsPage() {
                     </div>
                     <div className="small muted" style={{ marginTop: 4 }}>
                       {channel.monitorId
-                        ? monitors.find((monitor) => monitor.id === channel.monitorId)?.name ??
-                          'Specific monitor'
-                        : 'All monitors'}
+                        ? (monitors.find((monitor) => monitor.id === channel.monitorId)?.name ??
+                          t('settings.specificMonitor'))
+                        : t('settings.allMonitors')}
                       {' · '}
-                      {channel.onDown ? 'alerts on down' : ''}
+                      {channel.onDown ? t('settings.alertsOnDown') : ''}
                       {channel.onDown && channel.onRecover ? ' + ' : ''}
-                      {channel.onRecover ? 'recovery' : ''}
-                      {channel.hasSecret ? ' · signed' : ''}
+                      {channel.onRecover ? t('settings.recovery') : ''}
+                      {channel.hasSecret ? ` · ${t('settings.signed')}` : ''}
                     </div>
                   </div>
                   <div className="row" style={{ gap: 5 }}>
@@ -379,21 +369,21 @@ export function SettingsPage() {
                       onClick={() => void testChannel(channel)}
                       disabled={busy}
                     >
-                      Test
+                      {t('settings.test')}
                     </button>
                     <button
                       className="btn btn-sm"
                       onClick={() => void toggleChannel(channel, { enabled: !channel.enabled })}
                       disabled={busy}
                     >
-                      {channel.enabled ? 'Disable' : 'Enable'}
+                      {channel.enabled ? t('settings.disable') : t('settings.enable')}
                     </button>
                     <button
                       className="btn btn-sm btn-danger"
                       onClick={() => setDeleting(channel)}
                       disabled={busy}
                     >
-                      Del
+                      {t('settings.del')}
                     </button>
                   </div>
                 </div>
@@ -406,25 +396,25 @@ export function SettingsPage() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>Recent deliveries</h2>
-            <p>Real results, including failures and skipped sends</p>
+            <h2>{t('settings.recentDeliveries')}</h2>
+            <p>{t('settings.recentDeliveriesSub')}</p>
           </div>
         </div>
         <div className="table-scroll">
           <table className="data">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Event</th>
-                <th>Status</th>
-                <th>Detail</th>
+                <th>{t('settings.colTime')}</th>
+                <th>{t('settings.colEvent')}</th>
+                <th>{t('settings.colStatus')}</th>
+                <th>{t('settings.colDetail')}</th>
               </tr>
             </thead>
             <tbody>
               {deliveries.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="muted">
-                    No deliveries recorded yet.
+                    {t('settings.noDeliveries')}
                   </td>
                 </tr>
               ) : null}
@@ -434,7 +424,13 @@ export function SettingsPage() {
                   <td>{delivery.event}</td>
                   <td>
                     <span
-                      className={`pill ${delivery.status === 'sent' ? 'up' : delivery.status === 'failed' ? 'down' : 'neutral'}`}
+                      className={`pill ${
+                        delivery.status === 'sent'
+                          ? 'up'
+                          : delivery.status === 'failed'
+                            ? 'down'
+                            : 'neutral'
+                      }`}
                     >
                       {delivery.status}
                     </span>
@@ -451,8 +447,8 @@ export function SettingsPage() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Maintenance announcement</h2>
-              <p>Shown on public status pages while the window is upcoming or active</p>
+              <h2>{t('settings.maintenance')}</h2>
+              <p>{t('settings.maintenanceSub')}</p>
             </div>
           </div>
           <form className="panel-pad stack" onSubmit={createMaintenance} noValidate>
@@ -462,48 +458,50 @@ export function SettingsPage() {
                 <span>{mError}</span>
               </div>
             ) : null}
-            <Field label="Title" htmlFor="m-title">
+            <Field label={t('settings.mTitle')} htmlFor="m-title">
               <input
                 id="m-title"
                 className="input"
                 value={mTitle}
                 onChange={(event) => setMTitle(event.target.value)}
-                placeholder="Database upgrade"
+                placeholder={t('settings.mTitlePlaceholder')}
                 maxLength={120}
               />
             </Field>
-            <Field label="Details" htmlFor="m-body">
+            <Field label={t('settings.mBody')} htmlFor="m-body">
               <textarea
                 id="m-body"
                 className="textarea"
                 value={mBody}
                 onChange={(event) => setMBody(event.target.value)}
-                placeholder="Brief expected impact, in public-safe wording."
+                placeholder={t('settings.mBodyPlaceholder')}
                 maxLength={2000}
               />
             </Field>
             <div className="grid-2">
-              <Field label="Starts" htmlFor="m-start">
+              <Field label={t('settings.mStart')} htmlFor="m-start">
                 <input
                   id="m-start"
                   className="input"
                   type="datetime-local"
+                  lang={isZh ? 'zh-CN' : 'en-US'}
                   value={mStart}
                   onChange={(event) => setMStart(event.target.value)}
                 />
               </Field>
-              <Field label="Ends" htmlFor="m-end">
+              <Field label={t('settings.mEnd')} htmlFor="m-end">
                 <input
                   id="m-end"
                   className="input"
                   type="datetime-local"
+                  lang={isZh ? 'zh-CN' : 'en-US'}
                   value={mEnd}
                   onChange={(event) => setMEnd(event.target.value)}
                 />
               </Field>
             </div>
             <button className="btn btn-primary" type="submit" disabled={busy}>
-              Publish announcement
+              {t('settings.publish')}
             </button>
           </form>
         </section>
@@ -511,14 +509,14 @@ export function SettingsPage() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Announcements</h2>
-              <p>{maintenance.length} recorded</p>
+              <h2>{t('settings.announcements')}</h2>
+              <p>{t('settings.recorded', { n: maintenance.length })}</p>
             </div>
           </div>
           <div className="panel-pad stack" style={{ gap: 8 }}>
             {maintenance.length === 0 ? (
               <p className="small muted" style={{ margin: 0 }}>
-                No maintenance windows yet.
+                {t('settings.noMaintenance')}
               </p>
             ) : null}
             {maintenance.map((item) => (
@@ -539,7 +537,7 @@ export function SettingsPage() {
                     onClick={() => setDeletingMaintenance(item)}
                     disabled={busy}
                   >
-                    Remove
+                    {t('settings.remove')}
                   </button>
                 </div>
               </div>
@@ -550,9 +548,9 @@ export function SettingsPage() {
 
       {deleting ? (
         <ConfirmDialog
-          title="Delete this channel?"
-          message="Future incidents will no longer notify this destination. Delivery history is removed too."
-          confirmLabel="Delete channel"
+          title={t('settings.deleteTitle')}
+          message={t('settings.deleteBody')}
+          confirmLabel={t('settings.deleteConfirm')}
           danger
           busy={busy}
           onConfirm={() => void deleteChannel()}
@@ -562,9 +560,9 @@ export function SettingsPage() {
 
       {deletingMaintenance ? (
         <ConfirmDialog
-          title="Remove this announcement?"
-          message="It will disappear from public status pages immediately."
-          confirmLabel="Remove"
+          title={t('settings.mDeleteTitle')}
+          message={t('settings.mDeleteBody')}
+          confirmLabel={t('settings.mDeleteConfirm')}
           danger
           busy={busy}
           onConfirm={() => void deleteMaintenance()}

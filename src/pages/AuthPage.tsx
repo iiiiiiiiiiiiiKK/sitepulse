@@ -3,8 +3,11 @@ import { api, ApiClientError, NetworkError } from '../api';
 import { setSessionUser } from '../lib/session';
 import { navigateTo, X_HANDLE, X_URL } from '../router';
 import { Field } from '../components/ui';
+import { LangToggle } from '../components/layout';
+import { useI18n } from '../lib/i18n';
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
+  const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -20,13 +23,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 
       const nextErrors: Record<string, string> = {};
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
-        nextErrors.email = 'Enter a valid email address.';
+        nextErrors.email = t('auth.errEmail');
       }
       if (password.length < 10) {
-        nextErrors.password = 'Password must be at least 10 characters.';
+        nextErrors.password = t('auth.errPassword');
       }
       if (mode === 'register' && password !== confirm) {
-        nextErrors.confirm = 'Passwords do not match.';
+        nextErrors.confirm = t('auth.errConfirm');
       }
       if (Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors);
@@ -45,13 +48,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         if (caught instanceof ApiClientError || caught instanceof NetworkError) {
           setError(caught.message);
         } else {
-          setError('Unexpected error. Please retry.');
+          setError(t('common.unexpected'));
         }
       } finally {
         setBusy(false);
       }
     },
-    [email, password, confirm, mode]
+    [email, password, confirm, mode, t]
   );
 
   return (
@@ -64,21 +67,30 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
             </span>
             <span>SitePulse</span>
           </a>
-          <a className="x-link" href={X_URL} target="_blank" rel="me noopener noreferrer">
-            <span className="x-glyph" aria-hidden="true">
-              𝕏
-            </span>
-            <span className="x-label">@{X_HANDLE}</span>
-          </a>
+          <div className="row" style={{ gap: 8 }}>
+            <LangToggle compact />
+            <a
+              className="x-link"
+              href={X_URL}
+              target="_blank"
+              rel="me noopener noreferrer"
+              title={t('landing.follow', { handle: X_HANDLE })}
+            >
+              <span className="x-glyph" aria-hidden="true">
+                𝕏
+              </span>
+              <span className="x-label">@{X_HANDLE}</span>
+            </a>
+          </div>
         </div>
 
         <form className="auth-card" onSubmit={submit} noValidate>
           <div>
-            <h1 style={{ fontSize: 20 }}>{mode === 'register' ? 'Create your account' : 'Sign in'}</h1>
+            <h1 style={{ fontSize: 20 }}>
+              {mode === 'register' ? t('auth.registerTitle') : t('auth.loginTitle')}
+            </h1>
             <p className="small muted" style={{ margin: '5px 0 0' }}>
-              {mode === 'register'
-                ? 'Free plan includes 10 monitors, 60-second checks and 30 days of history.'
-                : 'Welcome back. Your monitors keep running while you are away.'}
+              {mode === 'register' ? t('auth.registerSub') : t('auth.loginSub')}
             </p>
           </div>
 
@@ -89,7 +101,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
             </div>
           ) : null}
 
-          <Field label="Email" error={fieldErrors.email} htmlFor="email">
+          <Field label={t('auth.email')} error={fieldErrors.email} htmlFor="email">
             <input
               id="email"
               className="input"
@@ -105,9 +117,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           </Field>
 
           <Field
-            label="Password"
+            label={t('auth.password')}
             error={fieldErrors.password}
-            hint={mode === 'register' ? 'At least 10 characters. Avoid common phrases.' : undefined}
+            hint={mode === 'register' ? t('auth.passwordHint') : undefined}
             htmlFor="password"
           >
             <input
@@ -124,7 +136,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           </Field>
 
           {mode === 'register' ? (
-            <Field label="Confirm password" error={fieldErrors.confirm} htmlFor="confirm">
+            <Field label={t('auth.confirm')} error={fieldErrors.confirm} htmlFor="confirm">
               <input
                 id="confirm"
                 className="input"
@@ -141,24 +153,28 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 
           <button className="btn btn-primary" type="submit" disabled={busy}>
             {busy ? <span className="spinner" /> : null}
-            {busy ? 'Please wait…' : mode === 'register' ? 'Create account' : 'Sign in'}
+            {busy
+              ? t('common.loading')
+              : mode === 'register'
+                ? t('auth.submitRegister')
+                : t('auth.submitLogin')}
           </button>
 
           <div className="small muted" style={{ textAlign: 'center' }}>
             {mode === 'register' ? (
               <>
-                Already have an account? <a href="/login">Sign in</a>
+                {t('auth.haveAccount')} <a href="/login">{t('auth.loginTitle')}</a>
               </>
             ) : (
               <>
-                No account yet? <a href="/register">Create one</a>
+                {t('auth.noAccount')} <a href="/register">{t('auth.registerTitle')}</a>
               </>
             )}
           </div>
         </form>
 
         <p className="small muted center" style={{ margin: 0 }}>
-          <a href="/">← Back to overview</a>
+          <a href="/">{t('auth.back')}</a>
         </p>
       </div>
     </div>

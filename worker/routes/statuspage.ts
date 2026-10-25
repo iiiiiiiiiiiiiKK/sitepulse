@@ -23,30 +23,137 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function humanDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+/**
+ * Status-page strings.
+ *
+ * The public page is server-rendered and must work with JavaScript disabled, so
+ * it cannot reuse the React dictionary. Instead it picks one of two literal
+ * tables from `?lang=` (or `Accept-Language`) and renders a plain link to the
+ * other language — a server-side language switch that needs no JS either.
+ */
+type StatusLang = 'en' | 'zh';
+
+const STRINGS = {
+  en: {
+    docTitle: (title: string) => `${title} · SitePulse status`,
+    description: (title: string) => `Live availability status for ${title}.`,
+    brand: 'SitePulse status',
+    statusWord: 'status',
+    noServicesOverall: 'No services yet',
+    allOperational: 'All systems operational',
+    degraded: (down: number, total: number) => `${down} of ${total} services degraded`,
+    stripAria: 'Last 24 hours uptime',
+    noDataTitle: (when: string) => `No data (${when})`,
+    availability: '24h availability',
+    avgResponse: 'Avg response',
+    probes: 'Probes',
+    lastCheck: 'Last check',
+    noData: 'No data',
+    noIncidents: 'No incidents recorded in the retained history.',
+    incident: 'incident',
+    incidents: 'incidents',
+    ongoing: 'ongoing',
+    probeFailure: 'Probe failure',
+    maintenance: 'Scheduled maintenance',
+    empty: 'No public services are configured for this status page.',
+    rendered: (when: string) => `Rendered ${when} · all times UTC`,
+    poweredBy: 'Powered by SitePulse',
+    switchLabel: '中文',
+    switchTitle: '切换为中文',
+    lang: 'en',
+    never: 'never',
+    justNow: 'just now',
+    secAgo: (n: number) => `${n}s ago`,
+    minAgo: (n: number) => `${n}m ago`,
+    hourAgo: (n: number) => `${n}h ago`,
+    dayAgo: (n: number) => `${n}d ago`,
+    status: {
+      up: { label: 'Operational', note: 'All probes succeeding.' },
+      down: { label: 'Outage', note: 'Consecutive probe failures detected.' },
+      recovering: { label: 'Recovering', note: 'Probe succeeded, confirming recovery.' },
+      paused: { label: 'Paused', note: 'Monitoring is paused by the owner.' },
+      unknown: { label: 'Unknown', note: 'No probe has completed yet.' },
+    } as Record<string, { label: string; note: string }>,
+  },
+  zh: {
+    docTitle: (title: string) => `${title} · SitePulse 状态页`,
+    description: (title: string) => `${title} 的实时可用性状态。`,
+    brand: 'SitePulse 状态页',
+    statusWord: '状态',
+    noServicesOverall: '暂无服务',
+    allOperational: '所有系统运行正常',
+    degraded: (down: number, total: number) => `${total} 个服务中有 ${down} 个异常`,
+    stripAria: '最近 24 小时可用率',
+    noDataTitle: (when: string) => `无数据（${when}）`,
+    availability: '24 小时可用率',
+    avgResponse: '平均响应',
+    probes: '探测次数',
+    lastCheck: '最近检测',
+    noData: '暂无数据',
+    noIncidents: '保留的历史中没有故障记录。',
+    incident: '个事件',
+    incidents: '个事件',
+    ongoing: '进行中',
+    probeFailure: '探测失败',
+    maintenance: '计划维护',
+    empty: '该状态页还没有配置公开的服务。',
+    rendered: (when: string) => `生成于 ${when} · 所有时间为 UTC`,
+    poweredBy: '由 SitePulse 提供',
+    switchLabel: 'EN',
+    switchTitle: 'Switch to English',
+    lang: 'zh',
+    never: '从未',
+    justNow: '刚刚',
+    secAgo: (n: number) => `${n} 秒前`,
+    minAgo: (n: number) => `${n} 分钟前`,
+    hourAgo: (n: number) => `${n} 小时前`,
+    dayAgo: (n: number) => `${n} 天前`,
+    status: {
+      up: { label: '运行正常', note: '所有探测均成功。' },
+      down: { label: '故障', note: '检测到连续探测失败。' },
+      recovering: { label: '恢复中', note: '探测已成功，正在确认恢复。' },
+      paused: { label: '已暂停', note: '监控已被所有者暂停。' },
+      unknown: { label: '未知', note: '尚未完成第一次探测。' },
+    } as Record<string, { label: string; note: string }>,
+  },
+} as const;
+
+/** Picks the render language from `?lang=` then `Accept-Language`. */
+export function resolveStatusLang(url: URL, acceptLanguage: string | null): StatusLang {
+  const fromQuery = url.searchParams.get('lang');
+  if (fromQuery === 'zh' || fromQuery === 'en') return fromQuery;
+  if (acceptLanguage && /^zh\b|[,;]\s*zh\b/i.test(acceptLanguage)) return 'zh';
+  return 'en';
+}
+
+function humanDuration(seconds: number, lang: StatusLang): string {
+  const zh = lang === 'zh';
+  if (seconds < 60) return zh ? `${seconds} 秒` : `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) {
+    return zh ? `${minutes} 分钟` : `${minutes}m`;
+  }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${minutes % 60}m`;
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  if (hours < 24) return zh ? `${hours} 小时 ${minutes % 60} 分` : `${hours}h ${minutes % 60}m`;
+  return zh ? `${Math.floor(hours / 24)} 天 ${hours % 24} 小时` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-function relativeTime(from: number | null, now: number): string {
-  if (!from) return 'never';
+function relativeTime(from: number | null, now: number, lang: StatusLang): string {
+  const s = STRINGS[lang];
+  if (!from) return s.never;
   const diff = Math.max(0, Math.round((now - from) / 1000));
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60) return diff < 5 ? s.justNow : s.secAgo(diff);
+  if (diff < 3600) return s.minAgo(Math.floor(diff / 60));
+  if (diff < 86400) return s.hourAgo(Math.floor(diff / 3600));
+  return s.dayAgo(Math.floor(diff / 86400));
 }
 
-const STATUS_META: Record<string, { label: string; color: string; note: string }> = {
-  up: { label: 'Operational', color: '#2ea043', note: 'All probes succeeding.' },
-  down: { label: 'Outage', color: '#f85149', note: 'Consecutive probe failures detected.' },
-  recovering: { label: 'Recovering', color: '#d29922', note: 'Probe succeeded, confirming recovery.' },
-  paused: { label: 'Paused', color: '#6e7681', note: 'Monitoring is paused by the owner.' },
-  unknown: { label: 'Unknown', color: '#6e7681', note: 'No probe has completed yet.' },
+const STATUS_COLORS: Record<string, string> = {
+  up: '#2ea043',
+  down: '#f85149',
+  recovering: '#d29922',
+  paused: '#6e7681',
+  unknown: '#6e7681',
 };
 
 export interface PublicMonitorView {
@@ -142,41 +249,54 @@ export interface StatusPageInput {
   monitors: PublicMonitorView[];
   maintenance: Array<{ title: string; body: string; startsAt: number; endsAt: number }>;
   now: number;
+  /** Render language; defaults to English. */
+  lang?: StatusLang;
+  /** Query string suffix used by the language switch link (e.g. `?lang=zh`). */
+  switchHref?: string;
 }
 
 export function renderStatusPage(input: StatusPageInput): string {
   const { title, monitors, maintenance, now } = input;
+  const lang: StatusLang = input.lang ?? 'en';
+  const s = STRINGS[lang];
+  const switchHref = input.switchHref ?? (lang === 'en' ? '?lang=zh' : '?lang=en');
+  // The switch shows the *target* language in its own script; each table stores
+  // the label/tooltip for switching away from that language.
+  const switchLabel = s.switchLabel;
+  const switchTitle = s.switchTitle;
+
   const down = monitors.filter((m) => m.status === 'down' || m.status === 'recovering');
   const overall =
     monitors.length === 0
-      ? { label: 'No services yet', color: '#6e7681' }
+      ? { label: s.noServicesOverall, color: '#6e7681' }
       : down.length === 0
-        ? { label: 'All systems operational', color: '#2ea043' }
-        : { label: `${down.length} of ${monitors.length} services degraded`, color: '#f85149' };
-
-  const totalDowntime = monitors.reduce((sum, m) => sum + (m.availability === null ? 0 : 0), 0);
-  void totalDowntime;
-  void overall;
+        ? { label: s.allOperational, color: '#2ea043' }
+        : { label: s.degraded(down.length, monitors.length), color: '#f85149' };
 
   const renderStrip = (m: PublicMonitorView) => {
     const cells = m.strip
       .map((bucket) => {
         if (bucket.total === 0) {
-          return `<span class="cell empty" title="No data (${new Date(bucket.t).toUTCString()})"></span>`;
+          return `<span class="cell empty" title="${escapeHtml(
+            s.noDataTitle(new Date(bucket.t).toUTCString())
+          )}"></span>`;
         }
         const avail = bucket.availability ?? 0;
         const cls = avail >= 99.5 ? 'ok' : avail >= 90 ? 'warn' : 'bad';
-        return `<span class="cell ${cls}" title="${avail.toFixed(1)}% · ${bucket.total} probes · ${new Date(bucket.t).toUTCString()}"></span>`;
+        return `<span class="cell ${cls}" title="${avail.toFixed(1)}% · ${bucket.total} · ${new Date(
+          bucket.t
+        ).toUTCString()}"></span>`;
       })
       .join('');
-    return `<div class="strip" role="img" aria-label="Last 24 hours uptime">${cells}</div>`;
+    return `<div class="strip" role="img" aria-label="${escapeHtml(s.stripAria)}">${cells}</div>`;
   };
 
   const serviceCards = monitors
     .map((m) => {
-      const meta = STATUS_META[m.status] ?? STATUS_META.unknown;
+      const meta = s.status[m.status] ?? s.status.unknown;
+      const color = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
       const availabilityText =
-        m.availability === null ? 'No data' : `${m.availability.toFixed(2)}%`;
+        m.availability === null ? s.noData : `${m.availability.toFixed(2)}%`;
       return `
       <article class="card" data-status="${m.status}">
         <header class="card-head">
@@ -184,22 +304,34 @@ export function renderStatusPage(input: StatusPageInput): string {
             <h2>${escapeHtml(m.name)}</h2>
             <p class="url">${escapeHtml(hostOf(m.url))}</p>
           </div>
-          <span class="pill" style="--pill:${meta.color}">${meta.label}</span>
+          <span class="pill" style="--pill:${color}">${escapeHtml(meta.label)}</span>
         </header>
         ${renderStrip(m)}
         <div class="metrics">
-          <div><span class="k">24h availability</span><span class="v">${availabilityText}</span></div>
-          <div><span class="k">Avg response</span><span class="v">${m.avgResponseMs === null ? '—' : `${m.avgResponseMs} ms`}</span></div>
-          <div><span class="k">Probes</span><span class="v">${m.totalChecks}</span></div>
-          <div><span class="k">Last check</span><span class="v">${relativeTime(m.lastCheckAt, now)}</span></div>
+          <div><span class="k">${escapeHtml(s.availability)}</span><span class="v">${availabilityText}</span></div>
+          <div><span class="k">${escapeHtml(s.avgResponse)}</span><span class="v">${
+            m.avgResponseMs === null ? '—' : `${m.avgResponseMs} ms`
+          }</span></div>
+          <div><span class="k">${escapeHtml(s.probes)}</span><span class="v">${m.totalChecks}</span></div>
+          <div><span class="k">${escapeHtml(s.lastCheck)}</span><span class="v">${relativeTime(
+            m.lastCheckAt,
+            now,
+            lang
+          )}</span></div>
         </div>
         ${
           m.incidents.length === 0
-            ? '<p class="fine">No incidents recorded in the retained history.</p>'
-            : `<details class="incidents"><summary>${m.incidents.length} incident${m.incidents.length === 1 ? '' : 's'}</summary><ul>${m.incidents
+            ? `<p class="fine">${escapeHtml(s.noIncidents)}</p>`
+            : `<details class="incidents"><summary>${m.incidents.length} ${
+                m.incidents.length === 1 ? s.incident : s.incidents
+              }</summary><ul>${m.incidents
                 .map(
                   (incident) =>
-                    `<li><span class="dot ${incident.resolvedAt ? 'resolved' : 'open'}"></span><strong>${incident.cause ?? 'Probe failure'}</strong> · ${humanDuration(incident.durationSeconds)} · ${new Date(incident.startedAt).toUTCString()}${incident.resolvedAt ? '' : ' · ongoing'}</li>`
+                    `<li><span class="dot ${incident.resolvedAt ? 'resolved' : 'open'}"></span><strong>${escapeHtml(
+                      incident.cause ?? s.probeFailure
+                    )}</strong> · ${humanDuration(incident.durationSeconds, lang)} · ${new Date(
+                      incident.startedAt
+                    ).toUTCString()}${incident.resolvedAt ? '' : ` · ${escapeHtml(s.ongoing)}`}</li>`
                 )
                 .join('')}</ul></details>`
         }
@@ -211,32 +343,36 @@ export function renderStatusPage(input: StatusPageInput): string {
   const maintenanceBlock =
     maintenance.length === 0
       ? ''
-      : `<section class="maintenance"><h2>Scheduled maintenance</h2><ul>${maintenance
+      : `<section class="maintenance"><h2>${escapeHtml(s.maintenance)}</h2><ul>${maintenance
           .map(
             (item) =>
-              `<li><strong>${escapeHtml(item.title)}</strong><br><span class="fine">${new Date(item.startsAt).toUTCString()} → ${new Date(item.endsAt).toUTCString()}</span>${
+              `<li><strong>${escapeHtml(item.title)}</strong><br><span class="fine">${new Date(
+                item.startsAt
+              ).toUTCString()} → ${new Date(item.endsAt).toUTCString()}</span>${
                 item.body ? `<p>${escapeHtml(item.body)}</p>` : ''
               }</li>`
           )
           .join('')}</ul></section>`;
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang === 'zh' ? 'zh-CN' : 'en'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)} · SitePulse status</title>
-<meta name="description" content="Live availability status for ${escapeHtml(title)}.">
+<title>${escapeHtml(s.docTitle(title))}</title>
+<meta name="description" content="${escapeHtml(s.description(title))}">
 <meta name="robots" content="index,follow">
 <style>
   :root{color-scheme:dark light;--bg:#0b0f14;--panel:#111821;--panel2:#0f1620;--line:#1f2a37;--text:#e6edf3;--muted:#8b98a9;--accent:#2f81f7}
   @media (prefers-color-scheme: light){:root{--bg:#f6f8fa;--panel:#fff;--panel2:#f0f3f6;--line:#d8dee4;--text:#1f2328;--muted:#5d6b7d}}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:32px 20px 64px}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;padding:32px 20px 64px}
   .wrap{max-width:880px;margin:0 auto}
   a{color:var(--accent)}
   .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px}
   .brand{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+  .lang-switch{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:13px;font-weight:600;line-height:1;text-decoration:none}
+  .lang-switch:hover{color:var(--text);border-color:var(--muted);text-decoration:none}
   h1{margin:6px 0 0;font-size:26px;line-height:1.25}
   .banner{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:20px}
   .banner .lamp{width:12px;height:12px;border-radius:50%;background:${overall.color};box-shadow:0 0 0 4px ${overall.color}22;flex:none}
@@ -282,16 +418,21 @@ export function renderStatusPage(input: StatusPageInput): string {
 <div class="wrap">
   <div class="top">
     <div>
-      <div class="brand">SitePulse status</div>
+      <div class="brand">${escapeHtml(s.brand)}</div>
       <h1>${escapeHtml(title)}</h1>
     </div>
+    <a class="lang-switch" href="${escapeHtml(switchHref)}" title="${escapeHtml(
+      switchTitle
+    )}" rel="alternate" hreflang="${lang === 'en' ? 'zh-CN' : 'en'}">${escapeHtml(switchLabel)}</a>
   </div>
   <div class="banner"><span class="lamp"></span><strong>${escapeHtml(overall.label)}</strong></div>
-  ${serviceCards || '<p class="fine">No public services are configured for this status page.</p>'}
+  ${serviceCards || `<p class="fine">${escapeHtml(s.empty)}</p>`}
   ${maintenanceBlock}
   <footer>
-    <span>Rendered ${new Date(now).toUTCString()} · all times UTC</span>
-    <span>Powered by SitePulse · <a href="https://x.com/0xkillcoin" rel="me noopener" target="_blank">𝕏 @0xkillcoin</a></span>
+    <span>${escapeHtml(s.rendered(new Date(now).toUTCString()))}</span>
+    <span>${escapeHtml(
+      s.poweredBy
+    )} · <a href="https://x.com/0xkillcoin" rel="me noopener" target="_blank">𝕏 @0xkillcoin</a></span>
   </footer>
 </div>
 </body>

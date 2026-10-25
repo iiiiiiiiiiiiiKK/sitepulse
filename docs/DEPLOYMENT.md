@@ -159,3 +159,18 @@ reloads the Worker.
 | `429` on sign-up | 20 registrations/hour/IP | wait, or clear `rate_limits` in D1 |
 | Status page 404 | monitor is not public | toggle "Publish" on the monitor detail page |
 | `Too many redirects` errors on a monitor | chain longer than 5 hops | monitor the final URL directly |
+
+## Language
+
+The deployment is bilingual out of the box; nothing needs to be configured.
+
+| Where | Behaviour |
+| --- | --- |
+| Dashboard | Toggle in the top bar (`中` / `EN`). Persisted in `localStorage` and mirrored into `?lang=`. |
+| Public status page | `?lang=zh` / `?lang=en`, otherwise `Accept-Language`. Renders a plain switch link, no JS required. |
+| Email / webhook bodies | English (alert text is generated in the Worker). |
+
+To add a third language: extend `Lang` and the `DICTS` table in
+`src/lib/i18n.ts` (TypeScript will point at every missing key), then add a
+matching table in `STRINGS` inside `worker/routes/statuspage.ts` and widen
+`resolveStatusLang`.

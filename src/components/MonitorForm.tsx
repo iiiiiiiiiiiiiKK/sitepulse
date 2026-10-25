@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiClientError, NetworkError } from '../api';
 import { Field } from './ui';
+import { useI18n } from '../lib/i18n';
 import type { Monitor } from '../types';
 
 export interface MonitorFormValues {
@@ -15,21 +16,15 @@ export interface MonitorFormValues {
 }
 
 const INTERVALS = [
-  { value: 60, label: 'Every 60 seconds' },
-  { value: 300, label: 'Every 5 minutes' },
-  { value: 600, label: 'Every 10 minutes' },
-  { value: 900, label: 'Every 15 minutes' },
-  { value: 1800, label: 'Every 30 minutes' },
-  { value: 3600, label: 'Every hour' },
-];
+  { value: 60, key: 'form.every60' },
+  { value: 300, key: 'form.every5m' },
+  { value: 600, key: 'form.every10m' },
+  { value: 900, key: 'form.every15m' },
+  { value: 1800, key: 'form.every30m' },
+  { value: 3600, key: 'form.every1h' },
+] as const;
 
-const TIMEOUTS = [
-  { value: 5000, label: '5 s' },
-  { value: 10000, label: '10 s' },
-  { value: 15000, label: '15 s' },
-  { value: 20000, label: '20 s' },
-  { value: 30000, label: '30 s' },
-];
+const TIMEOUTS = [5000, 10000, 15000, 20000, 30000];
 
 /**
  * Shared create/edit form. Client validation mirrors the server's rules so the
@@ -47,6 +42,7 @@ export function MonitorForm({
   onSubmit: (values: MonitorFormValues) => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t, lang } = useI18n();
   const [name, setName] = useState(initial?.name ?? '');
   const [url, setUrl] = useState(initial?.url ?? '');
   const [method, setMethod] = useState<'GET' | 'HEAD'>(
@@ -65,8 +61,8 @@ export function MonitorForm({
     event.preventDefault();
     setError(null);
     const next: Record<string, string> = {};
-    if (!name.trim()) next.name = 'Give this monitor a name.';
-    if (!url.trim()) next.url = 'A URL is required.';
+    if (!name.trim()) next.name = t('form.errName');
+    if (!url.trim()) next.url = t('form.errUrlRequired');
 
     const candidate = url.trim();
     if (candidate) {
@@ -76,18 +72,18 @@ export function MonitorForm({
       try {
         const parsed = new URL(withScheme);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          next.url = 'Only http:// and https:// URLs are supported.';
+          next.url = t('form.errUrlScheme');
         } else if (
           ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase())
         ) {
-          next.url = 'Private and loopback addresses cannot be monitored.';
+          next.url = t('form.errUrlPrivate');
         }
       } catch {
-        next.url = 'That does not look like a valid URL.';
+        next.url = t('form.errUrlInvalid');
       }
     }
     if (!/^[0-9,\-]+$/.test(expectedStatus.trim())) {
-      next.expectedStatus = 'Use codes or ranges, e.g. 200-299 or 200,204,301.';
+      next.expectedStatus = t('form.errExpected');
     }
 
     if (Object.keys(next).length > 0) {
@@ -111,7 +107,7 @@ export function MonitorForm({
       setError(
         caught instanceof ApiClientError || caught instanceof NetworkError
           ? caught.message
-          : 'Saving failed. Please retry.'
+          : t('form.saveFailed')
       );
     } finally {
       setBusy(false);
@@ -127,13 +123,13 @@ export function MonitorForm({
         </div>
       ) : null}
 
-      <Field label="Name" error={fieldErrors.name} htmlFor="monitor-name">
+      <Field label={t('form.name')} error={fieldErrors.name} htmlFor="monitor-name">
         <input
           id="monitor-name"
           className="input"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Marketing site"
+          placeholder={t('form.namePlaceholder')}
           maxLength={80}
           aria-invalid={Boolean(fieldErrors.name)}
           required
@@ -141,8 +137,8 @@ export function MonitorForm({
       </Field>
 
       <Field
-        label="URL"
-        hint="HTTPS is assumed if you omit the scheme. Private IPs, localhost and cloud metadata endpoints are rejected."
+        label={t('form.url')}
+        hint={t('form.urlHint')}
         error={fieldErrors.url}
         htmlFor="monitor-url"
       >
@@ -151,7 +147,7 @@ export function MonitorForm({
           className="input"
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://example.com/health"
+          placeholder={t('form.urlPlaceholder')}
           inputMode="url"
           spellCheck={false}
           aria-invalid={Boolean(fieldErrors.url)}
@@ -160,7 +156,7 @@ export function MonitorForm({
       </Field>
 
       <div className="grid-2">
-        <Field label="Check interval" htmlFor="monitor-interval">
+        <Field label={t('form.interval')} htmlFor="monitor-interval">
           <select
             id="monitor-interval"
             className="select"
@@ -169,22 +165,22 @@ export function MonitorForm({
           >
             {INTERVALS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.key)}
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="Timeout" htmlFor="monitor-timeout">
+        <Field label={t('form.timeout')} htmlFor="monitor-timeout">
           <select
             id="monitor-timeout"
             className="select"
             value={timeoutMs}
             onChange={(event) => setTimeoutMs(Number(event.target.value))}
           >
-            {TIMEOUTS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            {TIMEOUTS.map((value) => (
+              <option key={value} value={value}>
+                {lang === 'zh' ? `${value / 1000} 秒` : `${value / 1000} s`}
               </option>
             ))}
           </select>
@@ -192,25 +188,21 @@ export function MonitorForm({
       </div>
 
       <div className="grid-2">
-        <Field
-          label="HTTP method"
-          hint="GET is the safe default. Some CDNs answer HEAD with 405."
-          htmlFor="monitor-method"
-        >
+        <Field label={t('form.method')} hint={t('form.methodHint')} htmlFor="monitor-method">
           <select
             id="monitor-method"
             className="select"
             value={method}
             onChange={(event) => setMethod(event.target.value as 'GET' | 'HEAD')}
           >
-            <option value="GET">GET (recommended)</option>
+            <option value="GET">{t('form.methodGet')}</option>
             <option value="HEAD">HEAD</option>
           </select>
         </Field>
 
         <Field
-          label="Expected status"
-          hint="Ranges and code lists, e.g. 200-299 or 200,204."
+          label={t('form.expected')}
+          hint={t('form.expectedHint')}
           error={fieldErrors.expectedStatus}
           htmlFor="monitor-status"
         >
@@ -227,8 +219,8 @@ export function MonitorForm({
 
       <div className="grid-2">
         <Field
-          label="Failures before alerting"
-          hint="Consecutive failures required to open an incident."
+          label={t('form.failThreshold')}
+          hint={t('form.failThresholdHint')}
           htmlFor="monitor-fail"
         >
           <input
@@ -243,8 +235,8 @@ export function MonitorForm({
         </Field>
 
         <Field
-          label="Successes before recovery"
-          hint="Consecutive successes required to close the incident."
+          label={t('form.recoverThreshold')}
+          hint={t('form.recoverThresholdHint')}
           htmlFor="monitor-recover"
         >
           <input
@@ -261,11 +253,11 @@ export function MonitorForm({
 
       <div className="modal-foot" style={{ margin: '4px -18px -18px', paddingTop: 14 }}>
         <button type="button" className="btn" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t('common.cancel')}
         </button>
         <button type="submit" className="btn btn-primary" disabled={busy}>
           {busy ? <span className="spinner" /> : null}
-          {busy ? 'Saving…' : submitLabel}
+          {busy ? t('common.saving') : submitLabel}
         </button>
       </div>
     </form>

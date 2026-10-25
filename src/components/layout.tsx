@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { X_HANDLE, X_URL } from '../router';
 import type { User } from '../types';
+import { useI18n } from '../lib/i18n';
 
 /** The author's X profile, shown in the top bar on every screen. */
 export function XLink({ compact = false }: { compact?: boolean }) {
@@ -18,6 +19,33 @@ export function XLink({ compact = false }: { compact?: boolean }) {
       </span>
       {!compact ? <span className="x-label">@{X_HANDLE}</span> : null}
     </a>
+  );
+}
+
+/**
+ * Language switch.
+ *
+ * A single button that toggles EN ⇄ 中文. The current language is shown in its
+ * own script so it is unambiguous, the target language is in the title/aria
+ * label, and the choice is persisted in localStorage (see lib/lang.ts).
+ */
+export function LangToggle({ compact = false }: { compact?: boolean }) {
+  const { lang, toggle, t } = useI18n();
+  const label = lang === 'en' ? t('common.switchToChinese') : t('common.switchToEnglish');
+  return (
+    <button
+      type="button"
+      className="lang-toggle"
+      onClick={toggle}
+      title={label}
+      aria-label={label}
+      data-lang={lang}
+    >
+      <span className="lang-glyph" aria-hidden="true">
+        {lang === 'en' ? '中' : 'EN'}
+      </span>
+      {!compact ? <span className="lang-label">{label}</span> : null}
+    </button>
   );
 }
 
@@ -41,6 +69,7 @@ export function TopBar({
   path: string;
   onSignOut: () => void;
 }) {
+  const { t } = useI18n();
   const isDashboard = path.startsWith('/app');
   return (
     <header className="topbar">
@@ -49,25 +78,30 @@ export function TopBar({
         {user ? (
           <nav className="nav" aria-label="Main navigation">
             <a className={`nav-link ${path === '/app' ? 'active' : ''}`} href="/app">
-              Monitors
+              {t('nav.monitors')}
             </a>
             <a
               className={`nav-link ${isDashboard && path.startsWith('/app/settings') ? 'active' : ''}`}
               href="/app/settings"
             >
-              Alerts
+              {t('nav.alerts')}
             </a>
           </nav>
         ) : null}
         <span className="topbar-spacer" />
+        <LangToggle />
         <XLink />
         {user ? (
           <>
-            <span className="pill neutral" title={`Signed in as ${user.email}`}>
-              {user.plan === 'pro' ? 'Pro' : 'Free'}
+            <span className="pill neutral" title={t('nav.signedInAs', { email: user.email })}>
+              {user.plan === 'pro' ? t('nav.planPro') : t('nav.planFree')}
             </span>
-            <button className="btn btn-sm btn-ghost" onClick={onSignOut} title="Sign out">
-              Sign out
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={onSignOut}
+              title={t('nav.signOutTitle')}
+            >
+              {t('nav.signOut')}
             </button>
           </>
         ) : null}
@@ -77,6 +111,7 @@ export function TopBar({
 }
 
 export function PageShell({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="shell">
       <main>
@@ -87,10 +122,14 @@ export function PageShell({ children }: { children: ReactNode }) {
           className="container spread"
           style={{ fontSize: 12, color: 'var(--text-faint)', gap: 10 }}
         >
-          <span>SitePulse · open-source uptime monitoring on Cloudflare Workers</span>
+          <span>{t('footer.tagline')}</span>
           <span className="row" style={{ gap: 12 }}>
-            <a href="https://github.com/iiiiiiiiiiiiiKK/sitepulse" target="_blank" rel="noopener noreferrer">
-              GitHub
+            <a
+              href="https://github.com/iiiiiiiiiiiiiKK/sitepulse"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t('footer.github')}
             </a>
             <XLink compact />
           </span>

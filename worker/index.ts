@@ -4,7 +4,12 @@ import { handleAuth, requireUser } from './routes/auth';
 import { handleMonitors } from './routes/monitors';
 import { handleNotifications } from './routes/notifications';
 import { handleMaintenance } from './routes/maintenance';
-import { loadStatusPage, renderStatusJson, renderStatusPage } from './routes/statuspage';
+import {
+  loadStatusPage,
+  renderStatusJson,
+  renderStatusPage,
+  resolveStatusLang,
+} from './routes/statuspage';
 import { pruneEphemeral, pruneOldChecks, runDueMonitors } from './lib/scheduler';
 import { planFor } from './lib/auth';
 
@@ -52,19 +57,27 @@ export default {
             },
           });
         }
+        // The public status page is server-rendered, so the language switch is a
+        // plain link (`?lang=zh` / `?lang=en`) that works without JavaScript.
+        const lang = resolveStatusLang(url, request.headers.get('accept-language'));
         return new Response(
           renderStatusPage({
             title: page.title,
             monitors: page.monitors,
             maintenance: page.maintenance,
             now: Date.now(),
+            lang,
+            switchHref: lang === 'en' ? '?lang=zh' : '?lang=en',
           }),
           {
             headers: {
               'content-type': 'text/html; charset=utf-8',
               // Short cache so a fresh incident shows up quickly, but crawlers
-              // and repeated mobile loads still get a cached copy.
+              // and repeated mobile loads still get a cached copy. `Vary` keeps
+              // the language variants from being mixed up in caches.
               'cache-control': 'public, max-age=20, stale-while-revalidate=40',
+              vary: 'accept-language',
+              'content-language': lang === 'zh' ? 'zh-CN' : 'en',
               'x-content-type-options': 'nosniff',
               'referrer-policy': 'strict-origin-when-cross-origin',
             },

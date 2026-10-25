@@ -46,7 +46,7 @@ async function main() {
   const password = `E2e-${randomBytes(8).toString('hex')}-pw`;
 
   // ---------------------------------------------------------------- desktop --
-  const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
   const page = await desktop.newPage();
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
@@ -54,7 +54,7 @@ async function main() {
   page.on('pageerror', (error) => consoleErrors.push(String(error)));
 
   // Landing page
-  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/?lang=en`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('text=Know your site is down', { timeout: 20000 });
   const xLink = page.locator('header a.x-link').first();
   const xHref = await xLink.getAttribute('href');
@@ -63,7 +63,7 @@ async function main() {
   await page.screenshot({ path: resolve(SHOT_DIR, '01-landing.png'), fullPage: false });
 
   // Register through the real form
-  await page.goto(`${BASE}/register`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/register?lang=en`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#email');
   await page.fill('#email', email);
   await page.fill('#password', password);
@@ -92,16 +92,19 @@ async function main() {
     { timeout: 180_000 }
   ).catch(() => {});
   await page.waitForTimeout(4000);
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('text=SitePulse demo');
   await page.screenshot({ path: resolve(SHOT_DIR, '03-dashboard.png'), fullPage: true });
 
   const cardText = await page.locator('.monitor-card').first().innerText();
   record('dashboard shows monitor status', /Operational|Unknown|Down/.test(cardText), cardText.split('\n')[1] ?? '');
 
-  // Detail page
-  await page.click('.monitor-card a.monitor-name');
-  await page.waitForSelector('text=Response time', { timeout: 20000 });
+  // Detail page. Navigate explicitly instead of clicking: after a reload the
+  // card can be re-rendered mid-click, which made this wait flaky.
+  const detailHref = await page.locator('.monitor-card a.monitor-name').first().getAttribute('href');
+  record('monitor card links to a detail page', Boolean(detailHref), detailHref ?? 'missing');
+  await page.goto(`${BASE}${detailHref}?lang=en`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('text=Response time', { timeout: 30000 });
   await page.screenshot({ path: resolve(SHOT_DIR, '04-monitor-detail.png'), fullPage: true });
   record('monitor detail renders charts and timeline', true);
 
@@ -118,14 +121,14 @@ async function main() {
   record('publish toggled in UI', Boolean(publicUrl), publicUrl ?? 'no public url');
 
   // Settings
-  await page.goto(`${BASE}/app/settings`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/app/settings?lang=en`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('text=New alert channel');
   await page.screenshot({ path: resolve(SHOT_DIR, '05-settings.png'), fullPage: true });
   record('settings page renders', true);
 
   // Public status page (server-rendered)
   if (publicUrl) {
-    await page.goto(publicUrl, { waitUntil: 'networkidle' });
+    await page.goto(`${publicUrl}?lang=en`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('text=SitePulse status');
     await page.screenshot({ path: resolve(SHOT_DIR, '06-status-page.png'), fullPage: true });
     record('public status page renders in a browser', true);
@@ -134,6 +137,7 @@ async function main() {
   // -------------------------------------------------------------- mobile -----
   const iphone = await browser.newContext({
     ...(await import('playwright-core')).devices['iPhone 13'],
+    locale: 'en-US',
   });
   const mobile = await iphone.newPage();
   mobile.on('pageerror', (error) => consoleErrors.push(`[mobile] ${error}`));
@@ -145,11 +149,11 @@ async function main() {
     }));
 
   for (const [label, url] of [
-    ['landing', `${BASE}/`],
-    ['login', `${BASE}/login`],
-    ['status page', publicUrl ?? `${BASE}/`],
+    ['landing', `${BASE}/?lang=en`],
+    ['login', `${BASE}/login?lang=en`],
+    ['status page', publicUrl ? `${publicUrl}?lang=en` : `${BASE}/?lang=en`],
   ]) {
-    await mobile.goto(url, { waitUntil: 'networkidle' });
+    await mobile.goto(url, { waitUntil: 'domcontentloaded' });
     await mobile.waitForTimeout(900);
     const size = await overflow(mobile);
     record(
@@ -159,13 +163,13 @@ async function main() {
     );
   }
 
-  await mobile.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await mobile.goto(`${BASE}/?lang=en`, { waitUntil: 'domcontentloaded' });
   await mobile.screenshot({ path: resolve(SHOT_DIR, '07-mobile-landing.png'), fullPage: true });
   const mobileX = await mobile.locator('header a.x-link').first().getAttribute('href');
   record('iPhone header X link present', mobileX === 'https://x.com/0xkillcoin', mobileX ?? 'missing');
 
   // Signed-in mobile dashboard
-  await mobile.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  await mobile.goto(`${BASE}/login?lang=en`, { waitUntil: 'domcontentloaded' });
   await mobile.fill('#email', email);
   await mobile.fill('#password', password);
   await mobile.click('button[type="submit"]');
@@ -193,9 +197,9 @@ async function main() {
   record('iPhone 13 · tap targets ≥ 30px tall', tiny.length === 0, tiny.join(', ') || 'all good');
 
   // ------------------------------------------------------------- 320px ------
-  const tiny32 = await browser.newContext({ viewport: { width: 320, height: 720 } });
+  const tiny32 = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: 'en-US' });
   const narrow = await tiny32.newPage();
-  await narrow.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await narrow.goto(`${BASE}/?lang=en`, { waitUntil: 'domcontentloaded' });
   await narrow.waitForTimeout(800);
   const narrowSize = await overflow(narrow);
   record(

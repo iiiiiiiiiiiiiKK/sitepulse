@@ -1,5 +1,6 @@
 import type { Bucket, DayRollup } from '../types';
-import { formatMs, formatTime } from '../lib/format';
+import { formatDate, formatMs, formatTime } from '../lib/format';
+import { useI18n } from '../lib/i18n';
 
 /**
  * Hand-rolled SVG charts (no chart dependency).
@@ -17,6 +18,7 @@ interface ResponseChartProps {
 }
 
 export function ResponseChart({ buckets, range, height = 180 }: ResponseChartProps) {
+  const { t } = useI18n();
   const width = 720;
   const padLeft = 44;
   const padRight = 12;
@@ -64,9 +66,11 @@ export function ResponseChart({ buckets, range, height = 180 }: ResponseChartPro
           borderRadius: 12,
           color: 'var(--text-faint)',
           fontSize: 13,
+          textAlign: 'center',
+          padding: 12,
         }}
       >
-        No response-time samples in this window yet.
+        {t('chart.noResponse')}
       </div>
     );
   }
@@ -77,7 +81,7 @@ export function ResponseChart({ buckets, range, height = 180 }: ResponseChartPro
         className="chart-svg"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`Average response time over the last ${range}`}
+        aria-label={t('chart.responseAria', { range })}
         preserveAspectRatio="none"
         style={{ height }}
       >
@@ -130,8 +134,12 @@ export function ResponseChart({ buckets, range, height = 180 }: ResponseChartPro
               fill="var(--accent)"
             >
               <title>
-                {formatTime(bucket.t)} · {formatMs(bucket.avgMs)} avg · {bucket.total} probes
-                {bucket.failed > 0 ? ` · ${bucket.failed} failed` : ''}
+                {t('chart.tooltip', {
+                  time: formatTime(bucket.t),
+                  ms: formatMs(bucket.avgMs),
+                  probes: bucket.total,
+                })}
+                {bucket.failed > 0 ? t('chart.tooltipFailed', { failed: bucket.failed }) : ''}
               </title>
             </circle>
           )
@@ -155,10 +163,13 @@ export function ResponseChart({ buckets, range, height = 180 }: ResponseChartPro
       <div className="chart-legend">
         <span>
           <span className="legend-dot" style={{ background: 'var(--accent)' }} />
-          Average response time (ms)
+          {t('chart.avgLabel')}
         </span>
         <span className="muted">
-          {buckets.length} buckets · {buckets.reduce((sum, b) => sum + b.total, 0)} probes
+          {t('chart.buckets', {
+            buckets: buckets.length,
+            probes: buckets.reduce((sum, bucket) => sum + bucket.total, 0),
+          })}
         </span>
       </div>
     </div>
@@ -167,6 +178,7 @@ export function ResponseChart({ buckets, range, height = 180 }: ResponseChartPro
 
 /** Availability bar chart: each bucket is a real measurement or a gap. */
 export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[]; height?: number }) {
+  const { t } = useI18n();
   const width = 720;
   const padBottom = 20;
   const padTop = 8;
@@ -187,7 +199,7 @@ export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[];
           fontSize: 13,
         }}
       >
-        No probes recorded in this window.
+        {t('chart.noProbesWindow')}
       </div>
     );
   }
@@ -198,7 +210,7 @@ export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[];
         className="chart-svg"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Availability per bucket"
+        aria-label={t('chart.availabilityAria')}
         preserveAspectRatio="none"
         style={{ height }}
       >
@@ -221,7 +233,7 @@ export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[];
                 height={2}
                 fill="var(--line)"
               >
-                <title>{formatTime(bucket.t)} · no data</title>
+                <title>{t('chart.noDataAt', { time: formatTime(bucket.t) })}</title>
               </rect>
             );
           }
@@ -239,8 +251,8 @@ export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[];
               fill={fill}
             >
               <title>
-                {formatTime(bucket.t)} · {availability.toFixed(1)}% · {bucket.total} probes
-                {bucket.failed > 0 ? ` (${bucket.failed} failed)` : ''}
+                {formatTime(bucket.t)} · {availability.toFixed(1)}% · {bucket.total}
+                {bucket.failed > 0 ? ` (${bucket.failed})` : ''}
               </title>
             </rect>
           );
@@ -250,13 +262,14 @@ export function AvailabilityChart({ buckets, height = 96 }: { buckets: Bucket[];
   );
 }
 
-/** Compact 24h/7d/30d strip used on the dashboard cards. */
+/** Compact 24h/7d/30d strip used on the monitor detail page. */
 export function UptimeStrip({ daily }: { daily: DayRollup[] }) {
+  const { t } = useI18n();
   if (daily.length === 0) {
-    return <div className="uptime-strip" aria-label="No history yet" />;
+    return <div className="uptime-strip" aria-label={t('chart.stripAria')} />;
   }
   return (
-    <div className="uptime-strip" role="img" aria-label="Daily availability">
+    <div className="uptime-strip" role="img" aria-label={t('chart.stripAria')}>
       {daily.map((day) => {
         const cls =
           day.total === 0
@@ -268,8 +281,12 @@ export function UptimeStrip({ daily }: { daily: DayRollup[] }) {
                 : 'bad';
         const label =
           day.total === 0
-            ? `${new Date(day.day).toLocaleDateString()} · no data`
-            : `${new Date(day.day).toLocaleDateString()} · ${(day.availability ?? 0).toFixed(2)}% · ${day.total} probes`;
+            ? t('chart.stripNoData', { date: formatDate(day.day) })
+            : t('chart.stripValue', {
+                date: formatDate(day.day),
+                availability: (day.availability ?? 0).toFixed(2),
+                probes: day.total,
+              });
         return <span key={day.day} className={`strip-cell ${cls}`} title={label} />;
       })}
     </div>
