@@ -16,9 +16,12 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node e2e/run-e2e.mjs",
+    "test:e2e": "node e2e/production-check.mjs",
+    "verify:prune": "node scripts/verify-prune.mjs",
+    "bench:prune": "node scripts/bench-prune.mjs",
     "db:local": "wrangler d1 execute sitepulse-db --local --file=worker/schema.sql",
     "db:remote": "wrangler d1 execute sitepulse-db --remote --file=worker/schema.sql",
+    "db:migrate": "wrangler d1 execute sitepulse-db --remote --file=worker/migrations/0002_efficiency.sql",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

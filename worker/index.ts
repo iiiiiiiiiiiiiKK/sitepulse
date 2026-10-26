@@ -10,8 +10,64 @@ import {
   renderStatusPage,
   resolveStatusLang,
 } from './routes/statuspage';
-import { pruneEphemeral, pruneOldChecks, runDueMonitors } from './lib/scheduler';
+import {
+  pruneEphemeral,
+  pruneOldChecks,
+  runDueMonitors,
+  shouldPruneNow,
+} from './lib/scheduler';
 import { planFor } from './lib/auth';
+import {
+  isBudgetError,
+  readCachedStatus,
+  writeCachedStatus,
+  type CacheEntry,
+} from './lib/cache';
+
+/** How long a rendered status page may be served from cache without a refresh. */
+const STATUS_CACHE_TTL_MS = 30_000;
+
+/**
+ * Serialises a cached (or freshly rendered) status page.
+ *
+ * `X-SitePulse-Cache` is honest about what happened: `hit` (fresh from cache),
+ * `miss` (just rendered), or `stale` (the database was unavailable, so a saved
+ * copy is being served — the page says so too, so nobody mistakes it for live).
+ */
+function respondStatus(
+  entry: CacheEntry,
+  options: { wantsJson: boolean; lang: 'en' | 'zh'; cacheState: 'hit' | 'miss' | 'stale' }
+): Response {
+  const staleFor = Math.max(0, Math.round((Date.now() - entry.storedAt) / 1000));
+  const headers: Record<string, string> = {
+    vary: 'accept-language',
+    'content-language': options.lang === 'zh' ? 'zh-CN' : 'en',
+    'x-sitepulse-cache': options.cacheState,
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'x-sitepulse-data-age': String(staleFor),
+  };
+  if (options.wantsJson) {
+    return new Response(entry.json, {
+      headers: {
+        ...headers,
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': options.cacheState === 'stale' ? 'no-store' : 'public, max-age=30',
+        'access-control-allow-origin': '*',
+      },
+    });
+  }
+  return new Response(entry.html, {
+    headers: {
+      ...headers,
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control':
+        options.cacheState === 'stale'
+          ? 'no-store'
+          : 'public, max-age=20, stale-while-revalidate=40',
+    },
+  });
+}
 
 /**
  * SitePulse Worker entry point.
@@ -41,48 +97,55 @@ export default {
         const wantsJson =
           url.searchParams.get('format') === 'json' ||
           (request.headers.get('accept') ?? '').includes('application/json');
-        const page = await loadStatusPage(env, slug);
+        const lang = resolveStatusLang(url, request.headers.get('accept-language'));
+
+        // Serve from the edge cache when the render is fresh. A status page is
+        // read far more often than it changes, and every miss costs D1 rows.
+        const cacheKeyVariant = `${lang}:render`;
+        const fresh = await readCachedStatus(`${slug}/${cacheKeyVariant}`, STATUS_CACHE_TTL_MS);
+
+        if (fresh && !('stale' in fresh && fresh.stale)) {
+          return respondStatus(fresh, { wantsJson, lang, cacheState: 'hit' });
+        }
+
+        let page: Awaited<ReturnType<typeof loadStatusPage>> = null;
+        try {
+          page = await loadStatusPage(env, slug);
+        } catch (error) {
+          // A status page must never answer with a bare 500. If the database is
+          // out of budget we serve the last render (marked stale), and if there
+          // has never been one we say exactly what is wrong.
+          if (isBudgetError(error)) {
+            if (fresh) {
+              return respondStatus(fresh, { wantsJson, lang, cacheState: 'stale' });
+            }
+            return budgetUnavailable(lang, wantsJson);
+          }
+          throw error;
+        }
+
         if (!page) {
           return new Response(notFoundHtml(), {
             status: 404,
             headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
           });
         }
-        if (wantsJson) {
-          return new Response(renderStatusJson(page.title, page.monitors, Date.now()), {
-            headers: {
-              'content-type': 'application/json; charset=utf-8',
-              'cache-control': 'public, max-age=30',
-              'access-control-allow-origin': '*',
-            },
-          });
-        }
-        // The public status page is server-rendered, so the language switch is a
-        // plain link (`?lang=zh` / `?lang=en`) that works without JavaScript.
-        const lang = resolveStatusLang(url, request.headers.get('accept-language'));
-        return new Response(
-          renderStatusPage({
+
+        const now = Date.now();
+        const entry = {
+          html: renderStatusPage({
             title: page.title,
             monitors: page.monitors,
             maintenance: page.maintenance,
-            now: Date.now(),
+            now,
             lang,
             switchHref: lang === 'en' ? '?lang=zh' : '?lang=en',
           }),
-          {
-            headers: {
-              'content-type': 'text/html; charset=utf-8',
-              // Short cache so a fresh incident shows up quickly, but crawlers
-              // and repeated mobile loads still get a cached copy. `Vary` keeps
-              // the language variants from being mixed up in caches.
-              'cache-control': 'public, max-age=20, stale-while-revalidate=40',
-              vary: 'accept-language',
-              'content-language': lang === 'zh' ? 'zh-CN' : 'en',
-              'x-content-type-options': 'nosniff',
-              'referrer-policy': 'strict-origin-when-cross-origin',
-            },
-          }
-        );
+          json: renderStatusJson(page.title, page.monitors, now),
+          storedAt: now,
+        };
+        await writeCachedStatus(`${slug}/${cacheKeyVariant}`, entry);
+        return respondStatus(entry, { wantsJson, lang, cacheState: 'miss' });
       }
 
       if (path === '/healthz') {
@@ -116,12 +179,21 @@ export default {
   },
 
   async scheduled(event: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
-    const origin = env.PUBLIC_BASE_URL?.replace(/\/+$/, '') ?? 'https://sitepulse.workers.dev';
+    const origin = env.PUBLIC_BASE_URL?.replace(/\/+$/, '') || 'https://sitepulse.workers.dev';
     ctx.waitUntil(
       (async () => {
+        const startedAt = Date.now();
         const summary = await runDueMonitors(env, origin);
-        const pruned = await pruneOldChecks(env);
-        await pruneEphemeral(env);
+
+        // Housekeeping is throttled: the pruning statements are index-backed
+        // now, but there is no reason to pay for them 60 times an hour. See
+        // PRUNE_EVERY_MINUTES in lib/scheduler.ts for the cost history.
+        let pruned = 0;
+        if (shouldPruneNow(startedAt)) {
+          pruned = await pruneOldChecks(env);
+          await pruneEphemeral(env);
+        }
+
         console.log(
           JSON.stringify({
             cron: event.cron,
@@ -132,6 +204,7 @@ export default {
             resolved: summary.incidentsResolved,
             notifications: summary.notifications,
             pruned,
+            prunedThisTick: shouldPruneNow(startedAt),
             errors: summary.errors.slice(0, 5),
           })
         );
@@ -141,6 +214,55 @@ export default {
     );
   },
 };
+
+/**
+ * Honest response for "the database is out of read budget".
+ *
+ * A status page that returns a generic 500 tells the visitor nothing and looks
+ * like the monitored service is broken. This page says what actually happened,
+ * and it does not pretend the data is live.
+ */
+function budgetUnavailable(lang: 'en' | 'zh', wantsJson: boolean): Response {
+  const message =
+    lang === 'zh'
+      ? '状态数据库已达当日读取配额，暂时无法获取最新数据。这不是被监控服务本身的故障。'
+      : 'The status database has reached its daily read quota, so live data is temporarily unavailable. This is not a failure of the monitored services.';
+  if (wantsJson) {
+    return new Response(
+      JSON.stringify({ error: { message, code: 'budget_exhausted' }, stale: true, live: false }, null, 2),
+      {
+        status: 503,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'access-control-allow-origin': '*',
+          'x-sitepulse-cache': 'unavailable',
+        },
+      }
+    );
+  }
+  const title = lang === 'zh' ? '状态数据暂时不可用' : 'Status data temporarily unavailable';
+  return new Response(
+    `<!doctype html><html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} · SitePulse</title>
+<style>body{background:#0b0f14;color:#e6edf3;font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}
+.c{max-width:520px;background:#111821;border:1px solid #2b3a4d;border-radius:14px;padding:26px}
+h1{font-size:19px;margin:0 0 10px}p{color:#9aabbf;margin:0 0 10px;font-size:14px}
+code{background:#182231;padding:1px 5px;border-radius:5px;font-size:12.5px}a{color:#4c8dff;text-decoration:none}</style>
+</head><body><div class="c"><h1>${title}</h1><p>${message}</p>
+<p style="font-size:12.5px;color:#6b7c90">${lang === 'zh' ? '配额每日 UTC 00:00 重置。' : 'The quota resets daily at 00:00 UTC.'}</p>
+<p><a href="https://x.com/0xkillcoin" rel="me noopener">𝕏 @0xkillcoin</a></p></div></body></html>`,
+    {
+      status: 503,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-sitepulse-cache': 'unavailable',
+      },
+    }
+  );
+}
 
 async function routeApi(request: Request, env: Bindings, url: URL): Promise<Response> {
   const path = url.pathname;
@@ -152,15 +274,70 @@ async function routeApi(request: Request, env: Bindings, url: URL): Promise<Resp
   }
 
   if (segments[1] === 'status' && segments[2] && request.method === 'GET') {
-    const page = await loadStatusPage(env, segments[2]);
-    if (!page) return fail(404, 'Status page not found.', 'not_found');
-    return new Response(renderStatusJson(page.title, page.monitors, Date.now()), {
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'public, max-age=30',
-        'access-control-allow-origin': '*',
-      },
-    });
+    const slug = segments[2];
+    // Same edge cache as the HTML page: this endpoint is public and CORS-open,
+    // so it is the cheapest thing for a scraper to hammer.
+    const cached = await readCachedStatus(`${slug}/en:render`, STATUS_CACHE_TTL_MS);
+    if (cached && !('stale' in cached && cached.stale)) {
+      return new Response(cached.json, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'public, max-age=30',
+          'access-control-allow-origin': '*',
+          'x-sitepulse-cache': 'hit',
+        },
+      });
+    }
+    try {
+      const page = await loadStatusPage(env, slug);
+      if (!page) return fail(404, 'Status page not found.', 'not_found');
+      return new Response(renderStatusJson(page.title, page.monitors, Date.now()), {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'public, max-age=30',
+          'access-control-allow-origin': '*',
+          'x-sitepulse-cache': 'miss',
+        },
+      });
+    } catch (error) {
+      if (isBudgetError(error) && cached) {
+        return new Response(cached.json, {
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+            'access-control-allow-origin': '*',
+            'x-sitepulse-cache': 'stale',
+          },
+        });
+      }
+      if (isBudgetError(error)) {
+        return new Response(
+          JSON.stringify(
+            {
+              error: {
+                message:
+                  'The status database has reached its daily read quota, so live data is temporarily unavailable.',
+                code: 'budget_exhausted',
+              },
+              stale: true,
+              live: false,
+            },
+            null,
+            2
+          ),
+          {
+            status: 503,
+            headers: {
+              'content-type': 'application/json; charset=utf-8',
+              'cache-control': 'no-store',
+              'access-control-allow-origin': '*',
+              'x-sitepulse-cache': 'unavailable',
+            },
+          }
+        );
+      }
+      throw error;
+    }
   }
 
   if (segments[1] === 'auth') {

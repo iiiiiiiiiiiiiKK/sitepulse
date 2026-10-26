@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
 -- ---------------------------------------------------------------------------
 -- Monitors
@@ -78,6 +79,9 @@ CREATE TABLE IF NOT EXISTS checks (
   attempt       INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_checks_monitor_time ON checks(monitor_id, checked_at DESC);
+-- Retention pruning filters by date alone, so it needs its own index; without
+-- this SQLite scans the whole table on every prune (see migrations/0002_efficiency.sql).
+CREATE INDEX IF NOT EXISTS idx_checks_checked_at ON checks(checked_at);
 
 CREATE TABLE IF NOT EXISTS incidents (
   id               TEXT PRIMARY KEY,
@@ -125,6 +129,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   UNIQUE (notification_id, incident_id, event)
 );
 CREATE INDEX IF NOT EXISTS idx_deliveries_notification ON deliveries(notification_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deliveries_created ON deliveries(created_at);
 
 -- ---------------------------------------------------------------------------
 -- Maintenance announcements (public status pages)

@@ -88,7 +88,10 @@ This is covered by the E2E suite.
 | Sign-ins | 40 / 10 min per IP, 10 / 10 min per account |
 | Response body | never read — cancelled as soon as headers arrive |
 | Probe timeout | ≤ 30 s hard deadline for the whole redirect chain |
-| History retention | 30 days (free) / 90 days (pro), pruned hourly |
+| History retention | 30 days (free) / 90 days (pro), pruned every 15 min via index seeks |
+| Dashboard refresh | 120 detail reads / 10 min per account |
+| Exports | 20 / hour per account (each can read 50k rows) |
+| Public status page | edge-cached 30 s; served stale (marked) when the DB is unavailable |
 
 ### 6. Public status pages
 
@@ -111,3 +114,49 @@ Public pages are server-rendered, so they work without JavaScript.
 SitePulse is a low-frequency availability checker. It does not perform port
 scans, vulnerability scanning, load testing, or any request that changes state
 on the target. Requests are non-destructive `GET`/`HEAD` only.
+
+## Resource-exhaustion follow-up (measured, 2026-10-26)
+
+A real incident, kept here because it is the kind of bug that only shows up in
+production and is easy to reintroduce:
+
+**Symptom.** Cloudflare analytics showed 5.24M D1 row reads/day on
+`sitepulse-db`, against a 5M/day free-tier limit. The account got throttled and
+every status page started returning 500.
+
+**Attribution** (`d1QueriesAdaptiveGroups`, grouped by query, last 24h):
+
+| rows_read | calls | avg/call | statement |
+| --- | --- | --- | --- |
+| 10,168,687 | 844 | 12,048 | retention pruner (3-table join, every minute) |
+| 16,485 | 785 | 21 | session expiry sweep |
+| 12,606 | 1,387 | 9 | due-monitor selection |
+
+**Root cause.** The pruner filtered on `checks.checked_at`, but the only index
+on that table was `(monitor_id, checked_at DESC)`. With no way to seek by date
+alone, SQLite fell back to a covering-index scan of the whole table —
+`EXPLAIN QUERY PLAN` confirmed `SCAN c USING COVERING INDEX
+idx_checks_monitor_time` — 60 times an hour. Cost therefore grew with retained
+history: at 30 days it would have exceeded the limit on its own.
+
+**Fixes.** `worker/migrations/0002_efficiency.sql` +
+`worker/lib/scheduler.ts`:
+
+1. `CREATE INDEX checks(checked_at)` — the floor delete is now a range seek.
+2. Per-monitor deletes use the existing `(monitor_id, checked_at)` index; the
+   plan list is read once instead of joining inside the delete.
+3. Housekeeping runs every 15 minutes (`PRUNE_EVERY_MINUTES`), not every minute.
+4. `sessions(expires_at)` and `deliveries(created_at)` indexes so the sweeps
+   seek too.
+
+**Guardrails added at the same time**
+
+- The public status page is edge-cached for 30s and, if D1 is unavailable,
+  serves the last render with `X-SitePulse-Cache: stale` plus its age — a status
+  page must not answer 500. With no cached copy it returns 503 with a message
+  saying the *status database* is out of quota, not that the monitored sites are
+  down.
+- Dashboard detail reads: 240 / 10 min per account. Exports: 20 / hour.
+- `tests/budget.test.ts` pins the pruning cadence and the budget-error detector;
+  `scripts/verify-prune.mjs` proves the retention semantics and that both
+  statements seek rather than scan.

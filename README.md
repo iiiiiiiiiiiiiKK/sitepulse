@@ -8,7 +8,7 @@ Probes your sites every minute from Cloudflare's edge, groups failures into
 incidents with real durations, and publishes a status page you can share.
 
 [![Live](https://img.shields.io/badge/live-sitepulse.changyuansex.workers.dev-4c8dff?style=flat-square)](https://sitepulse.changyuansex.workers.dev)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-3fb950?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-159%20passing-3fb950?style=flat-square)](#testing)
 [![E2E](https://img.shields.io/badge/e2e-70%2F70%20production-3fb950?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-7c5cff?style=flat-square)](LICENSE)
 [![Runtime](https://img.shields.io/badge/runtime-Cloudflare%20Workers-f38020?style=flat-square)](https://workers.cloudflare.com/)
@@ -60,8 +60,8 @@ questions:
 | **Incidents** | Open/resolve automatically, store cause + last status code + peak latency, timeline view |
 | **Notifications** | Webhook (HMAC-SHA256 signed, AES-GCM secrets at rest) and email. Every attempt is recorded with its real result — including `skipped` when no provider is configured |
 | **Public status** | Server-rendered HTML *and* JSON feed, works without JS, hostname-only disclosure, maintenance announcements |
-| **Operations** | Pause / resume / edit / delete, manual check with de-duplication, CSV & JSON export |
-| **Quotas** | Per-plan limits, minimum interval, retention window, rate limits on every mutating endpoint |
+| **Operations** | Pause / resume / edit / delete, manual check with de-duplication, CSV & JSON export (both rate-limited) |
+| **Quotas** | Per-plan limits, minimum interval, retention window, and rate limits on every mutating **and** every expensive read endpoint |
 | **Bilingual UI** | Full 简体中文 / English switch, persisted per browser; the public status page picks its language from `?lang=` or `Accept-Language` and switches with a plain link — no JavaScript needed |
 
 ## Screenshots
@@ -421,7 +421,7 @@ real value.
 ## Testing
 
 ```bash
-npm test          # unit + integration (Vitest, 152 tests)
+npm test          # unit + integration (Vitest, 159 tests)
 npm run typecheck # tsc over src/ and worker/
 npm run build     # production build
 ```
@@ -437,6 +437,13 @@ Unit suites cover the parts where a bug would be invisible or dangerous:
 | `tests/crypto.test.ts` | 24 | PBKDF2 round-trip, pepper, AES-GCM envelope, HMAC, constant-time compare |
 | `tests/privacy.test.ts` | 12 | status page never leaks paths/query/emails; webhook payload never leaks secrets |
 | `tests/i18n.test.ts` | 14 | EN/ZH key parity, placeholder parity, no untranslated UI strings, status-page language negotiation, escaping in both languages |
+| `tests/budget.test.ts` | 7 | pruning runs 4×/hour not 60×, and the D1 budget-error detector still surfaces real bugs |
+
+### Verification scripts
+
+```bash
+node scripts/verify-prune.mjs   # 10 checks: retention semantics + query plans, in-memory SQLite
+```
 
 ### End-to-end against production
 
@@ -463,7 +470,7 @@ Latest run against production:
 
 | Suite | Result |
 | --- | --- |
-| Unit / integration | **152 / 152 passing** |
+| Unit / integration | **159 / 159 passing** |
 | Production API + cron E2E | **70 / 70 passing** |
 | Recovery & incident lifecycle | **12 / 12 passing** |
 | Browser UI (desktop + iPhone 13 + 320 px) | **17 / 17 passing** |
@@ -500,8 +507,12 @@ Read [`SECURITY.md`](SECURITY.md) for the full threat model. Highlights:
 - **Secrets:** PBKDF2 passwords, hashed session tokens, AES-GCM webhook secrets,
   no secret ever returned by the API or written to a log.
 - **Tenant isolation:** every query is `user_id`-scoped; foreign resources 404.
-- **Rate limits:** sign-up, sign-in, monitor creation, manual checks and test
-  notifications are all bounded per IP/account.
+- **Rate limits:** sign-up, sign-in, monitor creation, manual checks, test
+  notifications, dashboard refreshes (120/10 min) and exports (20/h) are all
+  bounded per IP/account.
+- **Read budget:** the retention pruner is index-backed and runs 4×/hour; it
+  used to full-scan checks 60×/hour and single-handedly exceeded D1's daily
+  row-read limit. Details and measurements in [SECURITY.md](SECURITY.md#resource-exhaustion-follow-up-measured-2026-10-26).
 - **Security headers:** `nosniff`, `DENY` framing, HSTS, referrer policy and a
   restrictive permissions policy are applied to every response.
 

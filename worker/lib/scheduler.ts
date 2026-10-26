@@ -33,8 +33,7 @@ export interface RunSummary {
 
 const CHECK_RETENTION_SAFETY_LIMIT = 20_000;
 
-/** Atomically claims one due monitor slot. Returns null if another run won. */
-export async function claimMonitor(
+/** Atomically claims one due monitor slot. Returns null if another run won. */export async function claimMonitor(
   env: Bindings,
   monitor: MonitorRow,
   nowMs: number
@@ -241,30 +240,88 @@ export async function runDueMonitors(
   return summary;
 }
 
-/** Deletes check rows beyond each plan's retention window. */
+/**
+ * Retention pruning.
+ *
+ * This used to be the single most expensive statement in the product: a
+ * three-table join (`checks → monitors → users`) with a `CASE` on the plan,
+ * run on EVERY cron tick. Nothing indexed `checked_at` on its own, so SQLite
+ * fell back to a covering-index full scan:
+ *
+ *   EXPLAIN QUERY PLAN ... -> SCAN c USING COVERING INDEX idx_checks_monitor_time
+ *
+ * At 6.7k stored checks that was ~12k rows read per call, ~850 calls/day, and
+ * it grows linearly with history — measured at 10.2M of the 10.2M total daily
+ * reads (Cloudflare `d1QueriesAdaptiveGroups`, attributed by query text).
+ *
+ * Now: two cheap, index-backed statements, and only every `PRUNE_EVERY_MINUTES`
+ * instead of every minute.
+ *   1. a global floor delete at the longest retention any plan allows (90d);
+ *   2. per-monitor deletes only for monitors on a shorter window (30d).
+ * Both are seeks on `idx_checks_checked_at` / `idx_checks_monitor_time`, so a
+ * tick with nothing to delete reads 0 rows instead of the whole table.
+ */
+
+/** Minutes between pruning passes. 15 → 4 passes/hour instead of 60. */
+export const PRUNE_EVERY_MINUTES = 15;
+
+export function shouldPruneNow(nowMs: number): boolean {
+  return new Date(nowMs).getUTCMinutes() % PRUNE_EVERY_MINUTES === 0;
+}
+
+/** Longest retention offered by any plan; the safe global delete floor. */
+const MAX_RETENTION_DAYS = 90;
+const DAY_MS = 86_400_000;
+
 export async function pruneOldChecks(env: Bindings, nowMs = Date.now()): Promise<number> {
-  const result = await env.DB.prepare(
+  let deleted = 0;
+
+  // 1. Anything older than the maximum retention is expired for every plan.
+  const floor = await env.DB.prepare(
     `DELETE FROM checks WHERE id IN (
-       SELECT c.id FROM checks c
-       JOIN monitors m ON m.id = c.monitor_id
-       JOIN users u ON u.id = m.user_id
-       WHERE c.checked_at < ? - (CASE WHEN u.plan = 'pro' THEN 90 ELSE 30 END) * 86400000
-       LIMIT ?
+       SELECT id FROM checks WHERE checked_at < ? LIMIT ?
      )`
   )
-    .bind(nowMs, CHECK_RETENTION_SAFETY_LIMIT)
+    .bind(nowMs - MAX_RETENTION_DAYS * DAY_MS, CHECK_RETENTION_SAFETY_LIMIT)
     .run();
-  return result.meta?.changes ?? 0;
+  deleted += floor.meta?.changes ?? 0;
+
+  // 2. Monitors on a shorter window than the floor. This reads the monitor list
+  //    (tens of rows), never the checks table, and each delete is a seek.
+  const monitors = await env.DB.prepare(
+    `SELECT m.id AS id,
+            CASE WHEN u.plan = 'pro' THEN 90 ELSE 30 END AS retention_days
+     FROM monitors m JOIN users u ON u.id = m.user_id`
+  ).all<{ id: string; retention_days: number }>();
+
+  for (const monitor of monitors.results ?? []) {
+    if (monitor.retention_days >= MAX_RETENTION_DAYS) continue;
+    const cutoff = nowMs - monitor.retention_days * DAY_MS;
+    const result = await env.DB.prepare(
+      `DELETE FROM checks WHERE id IN (
+         SELECT id FROM checks WHERE monitor_id = ? AND checked_at < ? LIMIT 2000
+       )`
+    )
+      .bind(monitor.id, cutoff)
+      .run();
+    deleted += result.meta?.changes ?? 0;
+  }
+
+  return deleted;
 }
 
 /** Expired sessions and stale rate-limit rows housekeeping. */
 export async function pruneEphemeral(env: Bindings, nowMs = Date.now()): Promise<void> {
+  // Both statements are seeks on idx_sessions_expires / idx_deliveries_created.
   await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(nowMs).run();
   await env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?')
     .bind(Math.floor(nowMs / 1000) - 3600)
     .run();
-  // Deliveries older than the incident they belong to are not needed forever.
-  await env.DB.prepare('DELETE FROM deliveries WHERE created_at < ?')
-    .bind(nowMs - 60 * 86400000)
+  await env.DB.prepare(
+    `DELETE FROM deliveries WHERE id IN (
+       SELECT id FROM deliveries WHERE created_at < ? LIMIT 5000
+     )`
+  )
+    .bind(nowMs - 60 * DAY_MS)
     .run();
 }

@@ -289,6 +289,20 @@ export async function handleMonitors(
       const since = now - RANGE_MS[range];
       const bucketMs = RANGE_BUCKET_MS[range];
 
+      // This endpoint scans raw probe rows for the window and the dashboard
+      // polls it, so it is the most expensive read an authenticated user can
+      // trigger. Bounded per user to keep one tab (or a script) from
+      // monopolising the database read budget: 120 / 10 min is a refresh every
+      // 5 s, far more than a human needs (the UI polls every 30 s).
+      const detailLimit = await rateLimit(env.DB, `detail:${userId}`, 120, 600);
+      if (!detailLimit.allowed) {
+        throw new ApiError(
+          429,
+          'Too many dashboard refreshes (120 per 10 minutes). The scheduler keeps probing; try again shortly.',
+          'rate_limited'
+        );
+      }
+
       const checks = await env.DB.prepare(
         `SELECT checked_at, ok, response_ms FROM checks
          WHERE monitor_id = ? AND checked_at >= ? ORDER BY checked_at ASC LIMIT 20000`
@@ -491,6 +505,17 @@ export async function handleMonitors(
     const format = url.searchParams.get('format') === 'json' ? 'json' : 'csv';
     const range: RangeKey = parseRange(url.searchParams.get('range'));
     const since = Date.now() - RANGE_MS[range];
+
+    // An export reads up to 50k rows in one go. That is legitimate but should
+    // not be repeatable in a loop, so it is capped per account.
+    const exportLimit = await rateLimit(env.DB, `export:${userId}`, 20, 3600);
+    if (!exportLimit.allowed) {
+      throw new ApiError(
+        429,
+        'Export limit reached (20 per hour). The data is unchanged — retry later.',
+        'rate_limited'
+      );
+    }
 
     const { results } = await env.DB.prepare(
       `SELECT checked_at, ok, status_code, response_ms, error_kind, error_message, redirects, final_url

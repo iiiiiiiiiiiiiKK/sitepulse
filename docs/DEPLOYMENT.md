@@ -47,6 +47,14 @@ npx wrangler d1 execute sitepulse-db --remote --file=worker/schema.sql --yes
 
 Expected output: `num_tables: 9`.
 
+If the database already existed before this version, also apply the efficiency
+migration — it only creates indexes, is safe to re-run, and without it retention
+pruning full-scans `checks` on every tick:
+
+```bash
+npx wrangler d1 execute sitepulse-db --remote --file=worker/migrations/0002_efficiency.sql --yes
+```
+
 ## 3. Set secrets
 
 ```bash
