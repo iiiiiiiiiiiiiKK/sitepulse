@@ -156,7 +156,24 @@ history: at 30 days it would have exceeded the limit on its own.
   page must not answer 500. With no cached copy it returns 503 with a message
   saying the *status database* is out of quota, not that the monitored sites are
   down.
-- Dashboard detail reads: 240 / 10 min per account. Exports: 20 / hour.
+- Dashboard detail reads: 120 / 10 min per account. Exports: 20 / hour.
 - `tests/budget.test.ts` pins the pruning cadence and the budget-error detector;
   `scripts/verify-prune.mjs` proves the retention semantics and that both
   statements seek rather than scan.
+- `scripts/d1-usage.mjs` prints the daily total against the free-tier limit plus
+  per-statement attribution, and flags any single statement above 50% of the
+  volume. `scripts/bench-prune.mjs` benchmarks the old and new pruner on a
+  200k-row table.
+
+**Result (measured after the fix)**
+
+| | before | after |
+| --- | --- | --- |
+| pruner rows/read per call | ~12,000 | 0 (index seek, nothing expired) |
+| housekeeping runs/day | 1,440 | 96 |
+| pruner work/day (200k-row bench) | 33.1 s | 0.32 s (~103× less) |
+| app rows_read/day (projected) | 5.2–5.5M | ~15k |
+| status page on DB outage | HTTP 500 | last render (marked stale) or an honest 503 |
+
+The old three-table-join pruner no longer appears in the query log at all
+(`d1QueriesAdaptiveGroups`, last 40 minutes).
